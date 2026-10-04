@@ -1,0 +1,60 @@
+{
+  "name": "jelly-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Jelly, a soft-body desktop pet for macOS that catches your screenshots and files",
+  "author": "Chi Min Lee (catsmice)",
+  "license": "GPL-3.0-only",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "app": "electron-builder --mac --dir",
+    "release": "scripts/build-dmg.sh",
+    "install-app": "npm run app && rm -rf /Applications/Jelly.app && cp -R dist/mac-arm64/Jelly.app /Applications/ && echo \"Installed /Applications/Jelly.app\""
+  },
+  "devDependencies": {
+    "electron": "^44.3.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.catsmice.jelly",
+    "productName": "Jelly",
+    "copyright": "Copyright © 2026 Chi Min Lee (catsmice)",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "pet-demo.js",
+      "tray.html",
+      "crop.html",
+      "screenshots.js",
+      "downloads.js",
+      "i18n.js",
+      "carry-icon.png",
+      "icons/**",
+      "app/**",
+      "package.json"
+    ],
+    "asar": false,
+    "extraResources": [
+      { "from": "build/zh_TW.lproj", "to": "zh_TW.lproj" }
+    ],
+    "mac": {
+      "target": "dir",
+      "icon": "build/icon.icns",
+      "category": "public.app-category.utilities",
+      "hardenedRuntime": false,
+      "notarize": false,
+      "extendInfo": {
+        "LSUIElement": true,
+        "NSDesktopFolderUsageDescription": "Jelly catches new screenshots when macOS saves them to the Desktop.",
+        "NSDocumentsFolderUsageDescription": "Jelly catches new screenshots in the folder you chose for them.",
+        "NSDownloadsFolderUsageDescription": "Jelly catches downloads as they finish, when Fetch downloads is on."
+      },
+      "timestamp": "none"
+    }
+  }
+}

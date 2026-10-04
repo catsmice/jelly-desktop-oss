@@ -1,0 +1,479 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Jelly tray</title>
+<style>
+  /* The tray: a slab of her own jelly that her cards spill out onto. The look is
+     settled in a mock-up (the "gummy slab"). The slab itself is drawn on a
+     canvas, because it is soft: its edge is a ring of springs that ripples when
+     it is disturbed, and the whole slab squashes and rebounds like she does.
+     A page in a transparent window cannot blur what is behind the window, so
+     the jelly is more opaque than in the mock-up, which keeps the cards legible
+     on any wallpaper. */
+  :root{
+    --flavour:214 118 146;        /* pink, as in pet-demo.js */
+    --flavour-deep:150 52 84;
+    --card-top:#fffdf9;           /* card paint, as in upstream/shelf.ts */
+    --card-bottom:#e8dccd;
+    --card-w:104px;
+    --gap-x:12px;
+    --gap-y:14px;
+  }
+  html,body{margin:0;height:100%;overflow:hidden;background:transparent;
+    font-family:ui-rounded,"SF Pro Rounded",system-ui,sans-serif;-webkit-user-select:none;user-select:none}
+  canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  .ride{position:absolute;inset:0;pointer-events:none}
+  .grid{position:absolute;left:46px;top:42px;display:grid;pointer-events:auto;
+    /* Past four rows the window stops growing and the cards scroll. */
+    max-height:calc(100vh - 104px);overflow-y:auto;overflow-x:visible;padding:6px 6px 8px;margin:-6px -6px 0;scrollbar-width:none;
+    grid-template-columns:repeat(var(--cols,5),var(--card-w));gap:var(--gap-y) var(--gap-x)}
+  .card{
+    width:var(--card-w);border-radius:6px;overflow:hidden;cursor:grab;
+    background:linear-gradient(var(--card-top),var(--card-bottom));padding:5px 5px 0;box-sizing:border-box;
+    box-shadow:inset 0 1px 0 rgb(255 255 255 / .7),0 4px 9px rgb(var(--flavour-deep) / .4),0 1px 2px rgb(0 0 0 / .2);
+    transform:rotate(var(--tilt,0deg));transition:transform .18s cubic-bezier(.34,1.56,.64,1),box-shadow .18s;
+  }
+  .card:hover{transform:translateY(-5px) scale(1.07);
+    box-shadow:inset 0 1px 0 rgb(255 255 255 / .7),0 12px 18px rgb(var(--flavour-deep) / .5),0 2px 4px rgb(0 0 0 / .2)}
+  .pic{display:block;width:100%;aspect-ratio:16/10;border-radius:2px;background:#d9cfc4 center/cover no-repeat}
+  .band{margin:5px -5px 0;height:20px;display:grid;place-items:center;color:#fffdf8;
+    font-weight:800;font-size:12px;line-height:1;letter-spacing:.02em;font-variant-numeric:tabular-nums}
+  .card{position:relative}
+  .newest{position:relative}
+  /* Throw it away: a small round button that shows on the card under the cursor. */
+  .bin{position:absolute;top:3px;right:3px;width:22px;height:22px;border-radius:50%;border:0;padding:0;
+    display:grid;place-items:center;cursor:pointer;opacity:0;transform:scale(.7);
+    background:rgb(var(--flavour-deep) / .92);color:#fff;
+    box-shadow:inset 0 1px 0 rgb(255 255 255 / .45),0 2px 4px rgb(0 0 0 / .25);
+    transition:opacity .15s,transform .18s cubic-bezier(.34,1.56,.64,1)}
+  .card:hover .bin,.card:hover .cut{opacity:1;transform:scale(1)}
+  /* Crop: the same kind of button, beside the trash, on screenshots only. */
+  .cut{position:absolute;top:3px;right:29px;width:22px;height:22px;border-radius:50%;border:0;padding:0;
+    display:grid;place-items:center;cursor:pointer;opacity:0;transform:scale(.7);
+    background:rgb(var(--flavour-deep) / .92);color:#fff;
+    box-shadow:inset 0 1px 0 rgb(255 255 255 / .45),0 2px 4px rgb(0 0 0 / .25);
+    transition:opacity .15s,transform .18s cubic-bezier(.34,1.56,.64,1)}
+  .cut:hover{transform:scale(1.15)}
+  .cut svg{width:12px;height:12px}
+  .bin:hover{transform:scale(1.15)}
+  .card:hover.newest::after{opacity:0}
+  .bin svg{width:12px;height:12px}
+  .newest::after{content:"newest";position:absolute;top:0;right:0;font:700 8px/1 ui-monospace,Menlo,monospace;
+    letter-spacing:.06em;text-transform:uppercase;background:rgb(var(--flavour-deep));color:#fff;padding:3px 4px;border-bottom-left-radius:5px}
+  /* Clear all: a small pill of the same jelly, deeper, in the free corner. */
+  .clear{position:absolute;right:38px;bottom:34px;pointer-events:auto;cursor:pointer;
+    font:700 12px/1 ui-rounded,"SF Pro Rounded",system-ui,sans-serif;letter-spacing:.01em;color:#fff;
+    padding:7px 13px 8px;border:0;border-radius:999px;
+    background:linear-gradient(rgb(var(--flavour-deep) / .78),rgb(var(--flavour-deep) / .92));
+    box-shadow:inset 0 1.5px 0 rgb(255 255 255 / .45),inset 0 -3px 5px rgb(0 0 0 / .18),0 3px 6px rgb(var(--flavour-deep) / .35);
+    transition:transform .18s cubic-bezier(.34,1.56,.64,1)}
+  .clear:hover{transform:scale(1.08)}
+  .clear:active{transform:scale(.94)}
+  .clear:focus-visible{outline:2px solid #fff;outline-offset:2px}
+  @media (prefers-reduced-motion:reduce){.card,.clear{transition:none}}
+</style>
+<canvas id="jelly"></canvas>
+<div class="ride" id="ride"><div class="grid" id="grid"></div>
+  <button class="clear" id="clear" type="button"></button></div>
+<canvas id="shine"></canvas>
+<script>
+  // Her words, handed over by the shell as it serves this page.
+  const say = (key, values = {}) => (window.jellyWords?.[key] ?? key)
+    .replace(/\{(\w+)\}/g, (_, name) => values[name] ?? '');
+  document.getElementById('clear').textContent = say('clearAll');
+  const KINDS = { IMAGE:'#3b7ea1', DOC:'#b4562a', SHEET:'#2f7d4f', DECK:'#b03a3a', VIDEO:'#6b4ba8',
+    SOUND:'#a8842b', CODE:'#3f6b8a', FOLDER:'#7a6a52', FILE:'#6b6259' };
+  const FLAVOUR = [214, 118, 146], DEEP = [150, 52, 84];
+  const rgba = ([r, g, b], a) => `rgba(${r},${g},${b},${a})`;
+  const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const canvas = document.getElementById('jelly');
+  const ctx = canvas.getContext('2d');
+  // Highlights go on a layer above the cards: the cards are in the jelly, and the
+  // light reflects off its surface, over them, as it does off her belly.
+  const shine = document.getElementById('shine');
+  const top2 = shine.getContext('2d');
+  const grid = document.getElementById('grid');
+  const ride = document.getElementById('ride');
+  const tilt = i => ((i * 37) % 7 - 3) * .8 + 'deg';
+
+  // ---------- the soft slab ----------
+  // The slab's top face, at rest: a rounded rectangle inset from the window,
+  // leaving room below for its thickness and its shadow, and around it for the
+  // edge to bulge into when it ripples.
+  const SIDE = 9;             // how thick the slab looks, in px
+  const RADIUS = 30;
+  let rest = null;            // { x, y, w, h }
+  let ring = [];              // points round the edge: { x, y, nx, ny, d, v }
+
+  // Two springs drive it. The edge: each point is pulled back to rest and
+  // towards its neighbours, so a push travels round the rim as a ripple.
+  // The body: one squash value, wide-and-low when positive, tall when negative,
+  // pivoting on the floor it sits on. Tuned to wobble at about 2 Hz and settle
+  // in under a second, which is close to how she settles after a throw.
+  const EDGE = { k: 170, damp: 7, pull: 520, most: 9 };
+  const BODY = { k: 230, damp: 9 };
+  let squash = 0, squashV = 0;
+  let grow = 0, growTarget = 0;   // 0..1: the slab spreading out from her side, or slurping back
+  let cursor = { x: .5, y: .3, inside: false }, lastMove = null;
+  let breath = 0;
+
+  function layout() {
+    const dpr = devicePixelRatio || 1;
+    for (const [c, g] of [[canvas, ctx], [shine, top2]]) {
+      c.width = innerWidth * dpr; c.height = innerHeight * dpr;
+      g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    // 24 px all round leaves room for it to bounce without being cut off.
+    rest = { x: 24, y: 24, w: innerWidth - 48, h: innerHeight - 24 - SIDE - 17 };
+    ring = sampleRoundedRect(rest, RADIUS, 11);
+  }
+
+  // Points spaced roughly `step` px apart round a rounded rectangle, each with
+  // its outward normal, so displacing a point means pushing the jelly in or out.
+  function sampleRoundedRect({ x, y, w, h }, r, step) {
+    const pts = [];
+    const corner = (cx, cy, from) => {
+      const n = Math.max(3, Math.round((Math.PI / 2 * r) / step));
+      for (let i = 0; i < n; i++) {
+        const a = from + (i / n) * Math.PI / 2;
+        pts.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r, nx: Math.cos(a), ny: Math.sin(a) });
+      }
+    };
+    const line = (x0, y0, x1, y1, nx, ny) => {
+      const n = Math.max(1, Math.round(Math.hypot(x1 - x0, y1 - y0) / step));
+      for (let i = 0; i < n; i++) pts.push({ x: x0 + (x1 - x0) * i / n, y: y0 + (y1 - y0) * i / n, nx, ny });
+    };
+    line(x + r, y, x + w - r, y, 0, -1);                 corner(x + w - r, y + r, -Math.PI / 2);
+    line(x + w, y + r, x + w, y + h - r, 1, 0);          corner(x + w - r, y + h - r, 0);
+    line(x + w - r, y + h, x + r, y + h, 0, 1);          corner(x + r, y + h - r, Math.PI / 2);
+    line(x, y + h - r, x, y + r, -1, 0);                 corner(x + r, y + r, Math.PI);
+    return pts.map(p => ({ ...p, d: 0, v: 0 }));
+  }
+
+  // A push on the rim near (x, y): strongest at the nearest point, fading over
+  // a few neighbours, so it starts as a dent and spreads as a ripple.
+  function poke(x, y, strength) {
+    let near = 0, best = Infinity;
+    ring.forEach((p, i) => { const dd = (p.x - x) ** 2 + (p.y - y) ** 2; if (dd < best) { best = dd; near = i; } });
+    for (let k = -4; k <= 4; k++) {
+      const p = ring[(near + k + ring.length) % ring.length];
+      p.v += strength * Math.exp(-(k * k) / 5);
+    }
+  }
+  const bounce = amount => { squashV += amount; };
+
+  function step(dt) {
+    // The rim: back to rest, and towards the neighbours on either side.
+    const n = ring.length;
+    for (let i = 0; i < n; i++) {
+      const p = ring[i], a = ring[(i + n - 1) % n], b = ring[(i + 1) % n];
+      const accel = -EDGE.k * p.d - EDGE.damp * p.v + EDGE.pull * (a.d + b.d - 2 * p.d);
+      p.v += accel * dt;
+    }
+    for (const p of ring) { p.d += p.v * dt; p.d = Math.max(-EDGE.most, Math.min(EDGE.most, p.d)); }
+    // The body, plus a breath so slow and small it reads as alive, not moving.
+    breath += dt;
+    const target = .006 * Math.sin(breath * 2.4);
+    squashV += (-BODY.k * (squash - target) - BODY.damp * squashV) * dt;
+    squash = Math.max(-.08, Math.min(.3, squash + squashV * dt));
+    // Spreading out and slurping back are quick and a little springy too.
+    grow += (growTarget - grow) * Math.min(1, dt * (growTarget > grow ? 9 : 14));
+  }
+
+  // Where a rest-space point ends up. One affine map, shared by the slab and the
+  // cards riding it: grown out from her side (the left edge) by `grow`, then
+  // squashed about the middle of the floor it sits on.
+  function map() {
+    const g = .15 + .85 * grow;
+    const pivot = rest.x + rest.w * g / 2, floor = rest.y + rest.h + SIDE;
+    // A wide slab only needs a little sideways give to read as squashing.
+    const sx = 1 + squash * .2, sy = (1 - squash * .85) * (.35 + .65 * grow);
+    // x' = a*x + b, y' = sy*y + c
+    return { a: g * sx, b: pivot + (rest.x - rest.x * g - pivot) * sx, sy, c: floor * (1 - sy) };
+  }
+  let m = null;
+  const place = (x, y) => [m.a * x + m.b, m.sy * y + m.c];
+
+  function outline(dy = 0, inset = 0) {
+    ctx.beginPath();
+    const pts = ring.map(p => place(p.x + p.nx * (p.d - inset), p.y + p.ny * (p.d - inset) + dy));
+    const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    let m = mid(pts[pts.length - 1], pts[0]);
+    ctx.moveTo(m[0], m[1]);
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i], q = mid(p, pts[(i + 1) % pts.length]);
+      ctx.quadraticCurveTo(p[0], p[1], q[0], q[1]);
+    }
+    ctx.closePath();
+  }
+
+  // The four-pane window from her lighting, as it shows on her body: two rows
+  // of two, brighter on top, softly edged. It slides a little with the cursor and
+  // against the squash, which is what makes a flat drawing read as a curved,
+  // glossy surface.
+  function panes(g, x, y, w, h, alpha) {
+    const gw = w * .44, gh = h * .45;
+    g.save();
+    g.translate(x, y);
+    g.transform(1, -.12, -.18, 1, 0, 0);
+    g.filter = 'blur(.7px)';
+    [[0, 0, 1], [w - gw, 0, 1], [0, h - gh, .7], [w - gw, h - gh, .7]].forEach(([px, py, a]) => {
+      g.fillStyle = `rgba(255,255,255,${alpha * a})`;
+      g.beginPath(); g.roundRect(px, py, gw, gh, 2.5); g.fill();
+    });
+    g.restore();
+  }
+
+  function draw() {
+    const W = innerWidth, H = innerHeight;
+    ctx.clearRect(0, 0, W, H);
+    if (grow < .01) { ride.style.opacity = 0; top2.clearRect(0, 0, W, H); return; }
+    m = map();
+    const [left, top] = place(rest.x, rest.y), [right, bottom] = place(rest.x + rest.w, rest.y + rest.h);
+    const tiltX = (cursor.inside ? cursor.x - .5 : 0) * 10 - squash * 30;
+    const tiltY = (cursor.inside ? cursor.y - .4 : 0) * 6 + squash * 10;
+
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, grow * 1.6);
+
+    // Shadow on the floor, tinted by the light coming through her.
+    ctx.save();
+    ctx.filter = 'blur(8px)';
+    ctx.fillStyle = rgba(DEEP, .28);
+    ctx.beginPath(); ctx.ellipse((left + right) / 2, bottom + SIDE + 4, (right - left) / 2 * .96, 7, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+
+    // The side: the same outline dropped by its thickness, darker, so it reads
+    // as a slab with depth rather than a sticker.
+    outline(SIDE);
+    ctx.fillStyle = rgba(DEEP, .78);
+    ctx.fill();
+
+    // The top face.
+    outline();
+    const face = ctx.createLinearGradient(0, top, 0, bottom);
+    face.addColorStop(0, rgba(FLAVOUR.map(c => Math.min(255, c + 18)), .9));
+    face.addColorStop(.55, rgba(FLAVOUR, .88));
+    face.addColorStop(1, rgba(FLAVOUR.map(c => c - 18), .92));
+    ctx.fillStyle = face;
+    ctx.fill();
+
+    ctx.save();
+    ctx.clip();
+    // Light through the jelly gathers near the bottom, as it does in her.
+    const glow = ctx.createRadialGradient((left + right) / 2, bottom - 4, 4, (left + right) / 2, bottom - 4, (right - left) * .45);
+    glow.addColorStop(0, 'rgba(255,236,242,.42)');
+    glow.addColorStop(1, 'rgba(255,236,242,0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(left, top, right - left, bottom - top + SIDE);
+    // A soft sheen across the upper left, the broad reflection of the room.
+    const sheen = ctx.createRadialGradient(left + (right - left) * .3 + tiltX, top + 6 + tiltY, 6, left + (right - left) * .3 + tiltX, top + 6 + tiltY, (right - left) * .5);
+    sheen.addColorStop(0, 'rgba(255,255,255,.30)');
+    sheen.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = sheen;
+    ctx.fillRect(left, top, right - left, bottom - top);
+    // Fresnel: the rim of a transparent body is brighter than its middle.
+    ctx.lineWidth = 7;
+    ctx.strokeStyle = 'rgba(255,255,255,.16)';
+    ctx.filter = 'blur(3px)';
+    outline(0, 2); ctx.stroke();
+    ctx.restore();
+
+    // A crisp light line along the top edge, and a dark one inside the bottom.
+    ctx.save();
+    outline(); ctx.clip();
+    ctx.lineWidth = 2.2;
+    const rim = ctx.createLinearGradient(0, top, 0, top + 40);
+    rim.addColorStop(0, 'rgba(255,255,255,.75)'); rim.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.strokeStyle = rim;
+    outline(0, 1); ctx.stroke();
+    ctx.restore();
+
+    // Highlights, on the layer above the cards: her window panes, a long streak
+    // along the top, and a glint at the far end. They fade with the slab.
+    top2.clearRect(0, 0, W, H);
+    top2.save();
+    top2.globalAlpha = Math.min(1, grow * 1.6);
+    panes(top2, left + 20 + tiltX, top + 10 + tiltY, 28, 32, .62);
+    top2.filter = 'blur(1.4px)';
+    top2.strokeStyle = 'rgba(255,255,255,.6)';
+    top2.lineWidth = 4; top2.lineCap = 'round';
+    top2.beginPath();
+    top2.moveTo(left + 64 + tiltX * 1.3, top + 8 + tiltY * .6);
+    top2.quadraticCurveTo(left + (right - left) * .35 + tiltX, top + 4 + tiltY * .6, left + (right - left) * .6 + tiltX * .7, top + 8 + tiltY * .6);
+    top2.stroke();
+    top2.fillStyle = 'rgba(255,255,255,.75)';
+    top2.beginPath(); top2.ellipse(right - 30 + tiltX * .6, top + 12 + tiltY * .5, 6, 2.6, -.2, 0, Math.PI * 2); top2.fill();
+    top2.restore();
+
+    ctx.restore();
+
+    // The cards ride on the slab, squashing and growing with it.
+    ride.style.transformOrigin = '0 0';
+    ride.style.transform = `matrix(${m.a}, 0, 0, ${m.sy}, ${m.b}, ${m.c})`;
+    ride.style.opacity = Math.min(1, Math.max(0, (grow - .4) / .5));
+  }
+
+  // The loop runs only while the tray is out or on its way in or out. Left
+  // running, it drew an invisible slab sixty times a second for as long as she
+  // was awake, which cost about as much as she does dozing.
+  let last = performance.now(), running = false;
+  function frame(now) {
+    const dt = Math.min(.033, (now - last) / 1000); last = now;
+    // Two half steps: the rim is stiff enough to need them.
+    step(dt / 2); step(dt / 2);
+    draw();
+    if (growTarget === 0 && grow < .01) { running = false; return; }   // gone: stop
+    requestAnimationFrame(frame);
+  }
+  function run() {
+    if (running) return;
+    running = true; last = performance.now();
+    requestAnimationFrame(frame);
+  }
+
+  // ---------- cards ----------
+  function show(items) {
+    grid.style.setProperty('--cols', Math.min(5, items.length));
+    grid.replaceChildren(...items.map((item, i) => {
+      const card = document.createElement('div');
+      card.className = 'card' + (i === 0 ? ' newest' : '');
+      card.style.setProperty('--tilt', tilt(i));
+      card.draggable = true;
+      card.title = item.out ? `${item.name}\n${say('dragsOut', { size: item.out.replace('x', '×') })}` : item.name;
+      const pic = document.createElement('div');
+      pic.className = 'pic';
+      if (item.thumb) pic.style.backgroundImage = `url("${item.thumb}")`;
+      const band = document.createElement('div');
+      band.className = 'band';
+      band.style.background = KINDS[item.kind] ?? KINDS.FILE;
+      band.textContent = item.label;
+      // A screenshot or recording goes to the Trash; a file she was fed is only
+      // let go of, and stays where it was.
+      const bin = document.createElement('button');
+      bin.className = 'bin';
+      bin.type = 'button';
+      bin.title = say(item.trash ? 'trash' : 'letGo');
+      bin.innerHTML = '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M2 3.2h8M4.6 3.2V2.2h2.8v1M3.1 3.2l.5 6.6h4.8l.5-6.6"/></svg>';
+      bin.addEventListener('mousedown', event => event.stopPropagation());
+      bin.addEventListener('click', event => { event.stopPropagation(); throwAway(card, item); });
+      card.append(pic, band, bin);
+      if (item.crop) {
+        const cut = document.createElement('button');
+        cut.className = 'cut';
+        cut.type = 'button';
+        cut.title = say('cropCopy');
+        cut.innerHTML = '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M3 1v8h8M1 3h8v8"/></svg>';
+        cut.addEventListener('mousedown', event => event.stopPropagation());
+        cut.addEventListener('click', event => { event.stopPropagation(); window.pet?.cropOpen?.(item.path); });
+        card.append(cut);
+      }
+      card.addEventListener('mouseenter', () => {
+        hovered = { card, item };
+        const r = card.getBoundingClientRect();
+        poke(r.left + r.width / 2, rest.y + rest.h, 30);   // the slab gives under it
+      });
+      card.addEventListener('mouseleave', () => { if (hovered?.card === card) hovered = null; });
+      // Double-click a card, or press Space over it, for Quick Look.
+      card.addEventListener('dblclick', () => window.pet?.preview?.(item.path));
+      // The shell replaces this drag with a real file drag.
+      card.addEventListener('dragstart', event => {
+        event.preventDefault();
+        const r = card.getBoundingClientRect();
+        poke(r.left + r.width / 2, rest.y, -160);           // a card pulled out tugs the top edge up
+        bounce(-1.1);
+        window.pet?.handOver?.(item.path);
+      });
+      return card;
+    }));
+  }
+
+  // The card drops out of the slab and the slab jolts; then the shell lets it go.
+  let hovered = null;
+  function throwAway(card, item) {
+    if (card.dataset.going) return;
+    card.dataset.going = '1';
+    const r = card.getBoundingClientRect();
+    poke(r.left + r.width / 2, rest.y + rest.h, 140);
+    bounce(.8);
+    const done = () => window.pet?.throwAway?.(item.path);
+    if (still) return done();
+    card.animate([
+      { transform: getComputedStyle(card).transform, opacity: 1 },
+      { transform: 'translateY(40px) rotate(14deg) scale(.4)', opacity: 0 },
+    ], { duration: 260, easing: 'cubic-bezier(.5,0,.8,.4)', fill: 'forwards' }).finished.then(done);
+  }
+
+  function spill() {
+    run();
+    if (still) { grow = growTarget = 1; return; }
+    grow = 0; growTarget = 1;
+    squash = .22; squashV = 0;                               // lands flat and wide, then rebounds
+    for (const p of ring) { p.d = 0; p.v = 0; }
+    setTimeout(() => { poke(rest.x + rest.w, rest.y + rest.h / 2, 120); poke(rest.x + rest.w * .5, rest.y, -90); }, 180);
+    [...grid.children].forEach((card, i) => card.animate([
+      { transform: 'translate(-60px, 30px) scale(.2)', opacity: 0 },
+      { transform: `scale(1.06, .92) rotate(${tilt(i)})`, opacity: 1, offset: .75 },
+      { transform: `rotate(${tilt(i)})` },
+    ], { duration: 460, delay: 140 + i * 40, easing: 'cubic-bezier(.3,.6,.4,1)', fill: 'backwards' }));
+  }
+
+  function slurp() {
+    const done = () => window.pet?.trayDone?.();
+    if (still) { grow = growTarget = 0; return done(); }
+    bounce(1.6);
+    setTimeout(() => { growTarget = 0; }, 90);
+    setTimeout(done, 420);
+  }
+
+  // The cursor stirs the rim where it moves fast, and tilts the reflections.
+  addEventListener('mousemove', event => {
+    cursor = { x: event.clientX / innerWidth, y: event.clientY / innerHeight, inside: true };
+    if (lastMove) {
+      const speed = Math.hypot(event.clientX - lastMove.x, event.clientY - lastMove.y);
+      if (speed > 6) poke(event.clientX, event.clientY, Math.min(40, speed * 1.2) * (Math.random() < .5 ? 1 : -1));
+    }
+    lastMove = { x: event.clientX, y: event.clientY };
+  });
+  addEventListener('mouseleave', () => { cursor.inside = false; lastMove = null; });
+
+  // Files can be dropped on the tray to feed her, as on her body. The preload
+  // turns the drop into paths; here the page only has to accept it, and the
+  // jelly gives under the file as it is carried over, and jolts when it lands.
+  let lastNudge = 0;
+  for (const kind of ['dragenter', 'dragover']) addEventListener(kind, event => {
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+    const now = performance.now();
+    if (now - lastNudge > 120) { lastNudge = now; poke(event.clientX, event.clientY, 26); }
+    if (kind === 'dragenter') bounce(.35);
+  });
+  addEventListener('drop', () => bounce(.9));
+
+  // Clear all: she lets go of everything. Screenshots are filed into their month
+  // folder by the shell when filing is on; other files are simply released, untouched.
+  document.getElementById('clear').addEventListener('click', () => {
+    bounce(1.2);
+    window.pet?.clearTray?.();
+  });
+
+  // Closing when the cursor stays away, or when you switch apps, is the shell's
+  // job: it can see both whether or not this window has focus.
+  addEventListener('keydown', event => {
+    if (event.key === 'Escape') window.pet?.closeTray?.();
+    else if (event.key === ' ' && hovered) { event.preventDefault(); window.pet?.preview?.(hovered.item.path); }
+    else if ((event.key === 'Delete' || event.key === 'Backspace') && hovered) throwAway(hovered.card, hovered.item);
+    else if ((event.key === 'c' || event.key === 'C') && hovered?.item.crop) window.pet?.cropOpen?.(hovered.item.path);
+  });
+  addEventListener('resize', layout);
+
+  layout();
+  window.pet?.onTray?.((items, opening, filing) => {
+    if (!items.length) return window.pet?.closeTray?.();
+    document.getElementById('clear').title = say(filing ? 'clearFiles' : 'clearLets');
+    if (opening) layout();
+    show(items);
+    if (opening) spill();
+    else bounce(.5);                                         // something left or arrived: a small jolt
+  });
+  window.pet?.onTrayClose?.(slurp);
+</script>

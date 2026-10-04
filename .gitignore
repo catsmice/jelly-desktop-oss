@@ -1,0 +1,6 @@
+node_modules/
+.DS_Store
+wkapp
+*.dSYM/
+dist/
+dist-release/

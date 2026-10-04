@@ -1,0 +1,644 @@
+diff --git a/package-lock.json b/package-lock.json
+index af0f890..fa933e4 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -342,9 +342,6 @@
+         "arm64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -362,9 +359,6 @@
+         "arm64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -382,9 +376,6 @@
+         "ppc64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -402,9 +393,6 @@
+         "s390x"
+       ],
+       "dev": true,
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -422,9 +410,6 @@
+         "x64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -442,9 +427,6 @@
+         "x64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -1459,9 +1441,6 @@
+         "arm64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MPL-2.0",
+       "optional": true,
+       "os": [
+@@ -1483,9 +1462,6 @@
+         "arm64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MPL-2.0",
+       "optional": true,
+       "os": [
+@@ -1507,9 +1483,6 @@
+         "x64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MPL-2.0",
+       "optional": true,
+       "os": [
+@@ -1531,9 +1504,6 @@
+         "x64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MPL-2.0",
+       "optional": true,
+       "os": [
+diff --git a/scripts/load-model.mjs b/scripts/load-model.mjs
+index d226b1f..b65d86e 100644
+--- a/scripts/load-model.mjs
++++ b/scripts/load-model.mjs
+@@ -1,8 +1,8 @@
+ import { readFileSync } from 'node:fs';
+ import { parseBabyCage } from '../src/physics/baby-cage.ts';
+ 
+-export function loadModel() {
+-  const bytes=readFileSync('src/assets/model/jelly-baby.bin');
++export function loadModel(name='jelly-baby') {
++  const bytes=readFileSync(`src/assets/model/${name}.bin`);
+   return parseBabyCage(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),
+-    JSON.parse(readFileSync('src/assets/model/jelly-baby.json','utf8')));
++    JSON.parse(readFileSync(`src/assets/model/${name}.json`,'utf8')));
+ }
+diff --git a/scripts/model-cage.mjs b/scripts/model-cage.mjs
+index 3737511..8dcea1c 100644
+--- a/scripts/model-cage.mjs
++++ b/scripts/model-cage.mjs
+@@ -4,8 +4,8 @@ import { determinant, inverse3 } from '../src/physics/soft-body.js';
+ const corners=[[0,0,0],[1,0,0],[1,1,0],[0,1,0],[0,0,1],[1,0,1],[1,1,1],[0,1,1]];
+ const splits=[[0,5,1,6],[0,1,2,6],[0,2,3,6],[0,3,7,6],[0,7,4,6],[0,4,5,6]];
+ 
+-export function buildCage(positions,scale,bottom,sdf,physicalVolume) {
+-  const h=.0075,lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];
++export function buildCage(positions,scale,bottom,sdf,physicalVolume,spacing=.0075) {
++  const h=spacing,lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];
+   for(let i=0;i<positions.length;i++) {lo[i%3]=Math.min(lo[i%3],positions[i]);hi[i%3]=Math.max(hi[i%3],positions[i]);}
+   const origin=lo.map(x=>Math.floor(x/h)*h-h*.25);
+   const dims=hi.map((x,a)=>Math.ceil((x-origin[a])/h)+1);
+diff --git a/src/app/input.ts b/src/app/input.ts
+index 642bc23..73e04de 100644
+--- a/src/app/input.ts
++++ b/src/app/input.ts
+@@ -29,6 +29,8 @@ export class Input {
+   vehicleHeading:()=>number|undefined=()=>undefined;
+   private readonly chase:TricycleCamera;
+   private vehicleHints=false;
++  /** Jelly desktop: hold the camera still so the body walks across the frame. */
++  fixedCamera=false;
+   readonly controls:OrbitControls;
+   private keys=new Set<string>();
+   private touchKeys=new Map<number,string>();
+@@ -170,7 +172,11 @@ export class Input {
+       releasePending:false,releaseStepsRemaining:0,physicsSteps:0,commandVersion:0,consumedVersion:0,
+     });
+     this.controls.enabled=false;
+-    this.canvas.setPointerCapture(e.pointerId);this.canvas.classList.add('grabbing');
++    // Jelly desktop: the shell forwards pointer events from the small window
++    // that catches dropped files, and a pointer id that was never pressed here
++    // cannot be captured. Losing capture is survivable; throwing is not.
++    try{this.canvas.setPointerCapture(e.pointerId);}catch{/* forwarded pointer */}
++    this.canvas.classList.add('grabbing');
+   };
+   private pointerMove=(e:PointerEvent)=>{
+     const state=this.grabs.get(e.pointerId);
+@@ -283,6 +289,7 @@ export class Input {
+     // External resets must never leave pointer capture or orbit state wedged.
+     for(const [id,state] of this.grabs)if(!this.body.grabs.includes(state.grab))this.finishRelease(id);
+     if(this.body.grab)return; // Freeze both orbit and translation for the entire grab.
++    if(this.fixedCamera){this.controls.update();return;}
+     const target=this.temp.copy(this.body.center);target.y=Math.max(.025,target.y);
+     this.follow.lerp(target,1-Math.exp(-4.5*dt));
+     this.temp.copy(this.follow).sub(this.controls.target);
+diff --git a/src/app/runtime.ts b/src/app/runtime.ts
+index f683cca..c679c09 100644
+--- a/src/app/runtime.ts
++++ b/src/app/runtime.ts
+@@ -17,14 +17,16 @@ import { FixedStepper } from './fixed-step.ts';
+ import { JELLY_FLAVORS } from '../graphics/character/jelly-flavors.ts';
+ import { FlavorPicker } from './flavor-picker.ts';
+ import { Facilities } from '../facilities/manager.ts';
+-import { SwingFacility } from '../worlds/main/facilities/swing/facility.ts';
+ import { FacilityShadows } from '../facilities/shadows.ts';
+ import { LightingMode } from './lighting-mode.ts';
+ import { BedFacility } from '../worlds/main/facilities/bed/facility.ts';
+ import { TrampolineFacility } from '../worlds/main/facilities/trampoline/facility.ts';
++import { TRAMPOLINE } from '../worlds/main/facilities/trampoline/physics.ts';
+ import { CarriedWearableFacility, WearableFacility } from '../worlds/main/facilities/wearable/facility.ts';
+ import { warmMainScenePipelines } from '../graphics/scene/render-warmup.ts';
+ import { WorldTravel } from '../worlds/travel.ts';
++import { loadBabyJellies } from './babies.ts';
++import { Shelf } from './shelf.ts';
+ 
+ export async function startGame(stage:(s:string)=>void,fail:(e:unknown)=>void) {
+   stage('Starting WebGPU');
+@@ -46,7 +48,9 @@ export async function startGame(stage:(s:string)=>void,fail:(e:unknown)=>void) {
+   const caustics=new CausticReceivers(optics,environment);
+   const facilityShadows=new FacilityShadows(environment.incoming,environment.windowFraction,caustics);
+   facilityShadows.surfaces.addBaby(baby.mesh);
+-  const table=await makeTable(optics,environment,facilityShadows,caustics);scene.add(table.mesh);
++  // Jelly desktop: no room, so no tabletop. The stub keeps the wiring below
++  // intact without loading 16 MB of wood maps or drawing a floor.
++  const table={mesh:new THREE.Object3D(),setLighting:()=>{},dispose:()=>{}} as unknown as Awaited<ReturnType<typeof makeTable>>;
+   const composite=createComposite(renderer,scene,camera);
+   const rig=new Locomotion(body);
+   const facilities=new Facilities(body);
+@@ -54,19 +58,49 @@ export async function startGame(stage:(s:string)=>void,fail:(e:unknown)=>void) {
+   const wearableTable=new WearableFacility(worlds.home,body,baby.group,rig,facilityShadows);
+   const bed=new BedFacility(worlds.home,body,facilityShadows);
+   rig.onJump=()=>wearableTable.jumpFromNormalLocomotion();
+-  facilities.add(wearableTable);
+   worlds.toyFacilities.add(new CarriedWearableFacility(wearableTable));
+-  facilities.add(new SwingFacility(worlds.home,body,facilityShadows,sound.facility));
+-  facilities.add(new TrampolineFacility(worlds.home,body,facilityShadows,sound.facility));
+-  facilities.add(bed);
++  // Jelly desktop: the trampoline is the only toy, and it hangs off the main
++  // scene so the shell can reveal it on its own. The swing, bed and dressing
++  // table stay built but out of the manager: an unregistered facility never runs
++  // afterStep, so its invisible collision barrier cannot shove the body around.
++  stage('Making a few smaller ones');
++  const babies=await loadBabyJellies(scene,['blueberry','lemon','lime']);
++  const trampoline=new TrampolineFacility(scene,body,facilityShadows,sound.facility);
++  facilities.add(trampoline);
++  facilities.enabled=false;
++  // The babies get the bed to themselves: one rider each, sharing the mother's
++  // visual and sitting at its own spot on the mat. They stay out of the manager,
++  // which owns exactly one active facility and gates her input on it.
++  const babyToys=babies.map((cub,index)=>new TrampolineFacility(scene,cub.body,facilityShadows,sound.facility,
++    {visual:trampoline.visual,offsetX:(index-(babies.length-1)/2)*.055,offsetZ:0,
++     spring:cub.body.totalMass/body.totalMass}));
+   const flavorPicker=new FlavorPicker(flavor=>{
+-    baby.setFlavor(flavor);optics.setAbsorption(JELLY_FLAVORS[flavor].absorption);
++    baby.setFlavor(flavor);shelf.setFlavor(flavor);optics.setAbsorption(JELLY_FLAVORS[flavor].absorption);
+   });
+   rig.onContact=(speed,foot)=>sound.contact(speed,foot);
++  const shadowAt=new THREE.Vector3(),shadowEdge=new THREE.Vector3();
++  // A creature's footprint on the floor plane, projected to a screen-space
++  // ellipse, fading and spreading as it leaves the ground.
++  const castShadow=(slot:number,who:SoftBody,resting:number,radius:number,darkness:number)=>{
++    const lift=Math.max(0,who.center.y-resting);
++    const spread=radius*(1+lift*9);
++    shadowAt.set(who.center.x,0,who.center.z).project(camera);
++    // Screen UV counts down from the top, clip space counts up from the bottom.
++    const cx=shadowAt.x*.5+.5,cy=.5-shadowAt.y*.5;
++    shadowEdge.set(who.center.x+spread,0,who.center.z).project(camera);
++    const rx=Math.abs(shadowEdge.x-shadowAt.x)*.5;
++    shadowEdge.set(who.center.x,0,who.center.z+spread).project(camera);
++    const ry=Math.abs(shadowEdge.y-shadowAt.y)*.5;
++    composite.setShadow(slot,cx,cy,rx,ry,darkness*Math.max(0,1-lift/(radius*1.2)));
++  };
+   const physicsClock=new FixedStepper(PHYS.step);
+-  let lastTime=0,disposed=false;
++  let lastTime=0,disposed=false,lastFrameAt=0;
+   const reset=()=>{if(worlds.loading)return;sound.stopFacilities();worlds.reset();input.teleport();rig.yaw=worlds.arrivalYaw;baby.resetFace();physicsClock.reset();};
++  // What she has swallowed, drawn inside her. It goes in her own group so the
++  // cards sit in the same space as the skin they are sampled from.
++  const shelf=new Shelf(body,baby.group);
+   const input=new Input(camera,renderer.domElement,body,baby.mesh,rig,sound);
++  (globalThis as unknown as {__jelly?:unknown}).__jelly={body,camera,rig,baby,babies,babyToys,input,shelf,resize:()=>resizeView(renderer,camera,input.controls),renderer,facilities,trampoline,TRAMPOLINE,composite:{setShadow:(slot:number,x:number,y:number,rx:number,ry:number,d:number)=>composite.setShadow(slot,x,y,rx,ry,d)}};
+   input.bodyControlled=()=>worlds.loading||!!worlds.facilities.active;
+   input.facilityCameraDistance=()=>worlds.facilities.active?.cameraDistance;
+   input.vehicleInput=(throttle,turn)=>{const p=worlds.tricycle?.physics;if(p&&worlds.inToys){p.throttle=p.riding?throttle:0;p.turn=p.riding?turn:0;}};
+@@ -103,9 +137,15 @@ export async function startGame(stage:(s:string)=>void,fail:(e:unknown)=>void) {
+     button.classList.toggle('muted',muted);void sound.unlock().catch(()=>{});
+     if((event as MouseEvent).detail>0)(event.currentTarget as HTMLButtonElement).blur();
+   });
++  const shown=new Set<THREE.Object3D>([baby.group,...babies.map(cub=>cub.group)]);
++  for(const child of scene.children)if(!shown.has(child))child.visible=false;
+   stage('Settling in');
+   // Let contact establish itself before displaying the first frame.
+   for(let i=0;i<80;i++){rig.step(PHYS.step);body.step(PHYS.step);}
++  for(let i=0;i<80;i++)for(const cub of babies)cub.step(PHYS.step);
++  for(const cub of babies)cub.update();
++  const standingHeight=body.center.y;
++  const babyHeight=babies[0]?.body.center.y??0;
+   body.updateSurface();
+   stage('Warming collisions');
+   facilities.warmupCollisions();
+@@ -114,6 +154,11 @@ export async function startGame(stage:(s:string)=>void,fail:(e:unknown)=>void) {
+   facilityShadows.surfaces.update(renderer,shadowSyncRevision);
+   optics.update(renderer,body,true);
+   await transport.update();
++  // Jelly desktop: the other worlds (the portal, the bed, the dressing table)
++  // are built but never shown, yet the warm-up below turns everything on to
++  // compile it: 59 meshes and 215k vertices, three times her own. Out of the
++  // scene they are never compiled or uploaded, which saves about 175 MB.
++  scene.remove(worlds.home,worlds.toys);
+   stage('Compiling the material');
+   await warmMainScenePipelines(renderer,scene,camera);
+   stage('Drawing the first frame');
+@@ -124,16 +169,34 @@ export async function startGame(stage:(s:string)=>void,fail:(e:unknown)=>void) {
+   lastTime=performance.now();
+   const frame=(time:number)=>{
+     if(disposed)return;
++    // Jelly desktop: 30 fps awake, 3 fps while dozing so the sleep bubble
++    // keeps breathing, and no GPU work at all once the body is properly asleep.
++    // __petFrameMs slows the awake rate: the pet asks for 20 fps while she only
++    // fidgets on her spot. Not below that: dt is capped at 50 ms a frame, so a
++    // slower rate would run her physics in slow motion.
++    const pet=globalThis as unknown as {__petWake?:boolean;__petSleeping?:boolean;__petFrameMs?:number};
++    if(time-lastFrameAt<(pet.__petSleeping?300:(pet.__petFrameMs??31)))return;
++    lastFrameAt=time;
++    if(body.sleeping&&!body.grabs.length&&!pet.__petWake&&!pet.__petSleeping){lastTime=time;physicsClock.reset();return;}
+     try {
+       const dt=Math.min(.05,Math.max(0,(time-lastTime)/1000));lastTime=time;
+       if(document.hidden){physicsClock.reset();return;}
+       if(worlds.loading){physicsClock.reset();return;}
+-      const steps=physicsClock.advance(dt,()=>{
++      // A sleeping body is not going anywhere: keep drawing the face so the sleep
++      // bubble breathes, but stop solving a simulation whose answer cannot change.
++      const dozing=!!pet.__petSleeping&&body.sleeping&&!body.grabs.length;
++      if(dozing)physicsClock.reset();
++      const steps=dozing?0:physicsClock.advance(dt,()=>{
+         if(worlds.loading)return;
+         const current=worlds.facilities;
+         input.step(PHYS.step);current.step(PHYS.step);
+         if(!current.active)rig.step(PHYS.step);
+-        body.step(PHYS.step);wearableTable.syncBedOccupancy(bed.active);current.afterStep();input.afterPhysicsStep();
++        body.step(PHYS.step);
++        for(const cub of babies)cub.step(PHYS.step);
++        // Only while the bed is really out: an unplayed facility still keeps
++        // bodies out of the space it occupies.
++        if(facilities.enabled)for(const ride of babyToys){ride.step(PHYS.step);ride.afterStep();}
++        wearableTable.syncBedOccupancy(bed.active);current.afterStep();input.afterPhysicsStep();
+         if(!current.active)rig.afterStep();
+         worlds.step(PHYS.step);
+       });
+@@ -143,17 +206,22 @@ export async function startGame(stage:(s:string)=>void,fail:(e:unknown)=>void) {
+       }
+       if(worlds.loading)return;
+       worlds.facilities.update();worlds.update(dt);
+-      baby.update(dt,worlds.facilities.active?.laughing??false,worlds.facilities.active?.sleeping??false,worlds.facilities.crying);
+-      const shadowSyncRevision=facilityShadows.update(renderer);
+-      facilityShadows.surfaces.update(renderer,shadowSyncRevision);
++      baby.update(dt,worlds.facilities.active?.laughing??false,(worlds.facilities.active?.sleeping??false)||!!pet.__petSleeping,worlds.facilities.crying);
++      // Jelly desktop: the shadow, caustic and transport fields all exist to
++      // paint a tabletop that is no longer there. Only the body's own optical
++      // thickness still matters, and that is already warmed before the first frame.
+       input.update(dt);
+       sound.listen(camera);
+       const tricycle=worlds.inToys?worlds.tricycle?.physics:undefined;
+       if(tricycle)sound.tricycleMotion(tricycle.riding?tricycle.rollingSpeed:0,tricycle.position.x,tricycle.position.y+.025,tricycle.position.z);
+-      transport.follow();
+-      optics.update(renderer,body);
+-      table.mesh.position.x=body.center.x;table.mesh.position.z=body.center.z;
+-      void transport.update().catch(fail);
++      for(const cub of babies)cub.update();
++      shelf.update(dt);
++      // One bed, several riders: it sinks under whoever is pressing it hardest.
++      let pressed=trampoline.physics.compression;
++      for(const ride of babyToys)pressed=Math.min(pressed,ride.physics.compression);
++      trampoline.visual.update(pressed);
++      castShadow(0,body,standingHeight,.05,.5);
++      babies.forEach((cub,index)=>castShadow(2+index,cub.body,babyHeight,.022,.42));
+       composite.render();
+     }catch(error){fail(error);}
+   };
+@@ -161,7 +229,7 @@ export async function startGame(stage:(s:string)=>void,fail:(e:unknown)=>void) {
+   const dispose=()=>{
+     if(disposed)return;disposed=true;
+     lightingMode.dispose();void renderer.setAnimationLoop(null);input.dispose();sound.dispose();transport.dispose();resizeObserver.disconnect();cancelAnimationFrame(resizeFrame);
+-    worlds.dispose();facilities.dispose();facilityShadows.dispose();caustics.dispose();flavorPicker.dispose();composite.dispose();baby.dispose();table.dispose();environment.dispose();optics.dispose();renderer.dispose();
++    shelf.dispose();worlds.dispose();facilities.dispose();facilityShadows.dispose();caustics.dispose();flavorPicker.dispose();composite.dispose();baby.dispose();table.dispose();environment.dispose();optics.dispose();renderer.dispose();
+   };
+   window.addEventListener('pagehide',event=>{if(!event.persisted)dispose();});
+   if(import.meta.hot)import.meta.hot.dispose(dispose);
+diff --git a/src/graphics/character/face-skin.ts b/src/graphics/character/face-skin.ts
+index a8ee5d2..2b31335 100644
+--- a/src/graphics/character/face-skin.ts
++++ b/src/graphics/character/face-skin.ts
+@@ -1,23 +1,32 @@
+ import type { SoftBody } from '../../physics/soft-body.js';
+ 
++/** The patch of skin a sampler indexes, in metres of the unscaled body. */
++export type SkinWindow={x:number;lo:number;hi:number};
++/** Eyes, brows, blush, mouth and tongue all live between these heights. */
++export const FACE_WINDOW:SkinWindow={x:.025,lo:.025,hi:.062};
++/** Below the mouth and above the legs, where a swallowed thing would settle. */
++export const BELLY_WINDOW:SkinWindow={x:.028,lo:.010,hi:.042};
++
+ /** A rest-space XY lookup: expression motion slides over the actual skin triangles.
+  * Positions and normals are then sampled from those same triangles after physics.
+  * The small spatial bins avoid raycasts and stencil rebuilds per frame. */
+ export class FaceSkin {
+   private readonly rest:Float32Array;
+   private readonly bins=new Map<string,number[]>();
+-  private readonly cell=.002;
++  private readonly cell:number;
+   private readonly body:SoftBody;
+-  constructor(body:SoftBody) {
+-    this.body=body;
++  /** The face window and bin size are in metres, so a smaller jelly needs them
++   * scaled: at 40% the whole face sits below the mother's lowest bin. */
++  constructor(body:SoftBody,scale=1,window:SkinWindow=FACE_WINDOW) {
++    this.body=body;this.cell=.002*scale;
+     this.rest=new Float32Array(body.surface.positions);
+     const p=this.rest,ix=body.surface.indices;
+     for(let t=0;t<ix.length;t+=3) {
+       const a=ix[t]*3,b=ix[t+1]*3,c=ix[t+2]*3;
+       const det=(p[b]-p[a])*(p[c+1]-p[a+1])-(p[b+1]-p[a+1])*(p[c]-p[a]);
+       if(det<=1e-14)continue;
+-      const minX=Math.max(-.025,Math.min(p[a],p[b],p[c])),maxX=Math.min(.025,Math.max(p[a],p[b],p[c]));
+-      const minY=Math.max(.025,Math.min(p[a+1],p[b+1],p[c+1])),maxY=Math.min(.062,Math.max(p[a+1],p[b+1],p[c+1]));
++      const minX=Math.max(-window.x*scale,Math.min(p[a],p[b],p[c])),maxX=Math.min(window.x*scale,Math.max(p[a],p[b],p[c]));
++      const minY=Math.max(window.lo*scale,Math.min(p[a+1],p[b+1],p[c+1])),maxY=Math.min(window.hi*scale,Math.max(p[a+1],p[b+1],p[c+1]));
+       for(let x=Math.floor(minX/this.cell);x<=Math.floor(maxX/this.cell);x++)
+         for(let y=Math.floor(minY/this.cell);y<=Math.floor(maxY/this.cell);y++) {
+           const key=`${x},${y}`,bin=this.bins.get(key);
+diff --git a/src/graphics/character/jelly-flavors.ts b/src/graphics/character/jelly-flavors.ts
+index d49e3a8..65b5550 100644
+--- a/src/graphics/character/jelly-flavors.ts
++++ b/src/graphics/character/jelly-flavors.ts
+@@ -8,6 +8,9 @@ export const JELLY_FLAVORS={
+   strawberry:{surface:'#ffc2ce',absorption:[10,44,56]},
+   blueberry:{surface:'#a9d9ff',absorption:[14,8,3]},
+   lemon:{surface:'#fff06a',absorption:[8,8,112]},
++  // Jelly desktop: a soft candy pink. The absorption triple is
++  // -ln(target)/0.035 for a transmitted colour of roughly (0.98, 0.30, 0.58).
++  pink:{surface:'#ffc6dd',absorption:[0.6,34.4,15.6]},
+ } as const satisfies Record<string,JellyFlavor>;
+ 
+ export type JellyFlavorName=keyof typeof JELLY_FLAVORS;
+diff --git a/src/graphics/scene/composite.ts b/src/graphics/scene/composite.ts
+index 0f609e7..ee749b8 100644
+--- a/src/graphics/scene/composite.ts
++++ b/src/graphics/scene/composite.ts
+@@ -1,15 +1,44 @@
+-import { RenderPipeline } from 'three/webgpu';
++import { RenderPipeline, Vector4 } from 'three/webgpu';
+ import type { WebGPURenderer, Scene, PerspectiveCamera } from 'three/webgpu';
+-import { pass, screenUV, float, vec3, vec4 } from 'three/tsl';
++import { pass, screenUV, float, vec3, vec4, step, uniform, smoothstep } from 'three/tsl';
+ import { bloom } from 'three/addons/tsl/display/BloomNode.js';
+ 
++export const CONTACT_SHADOWS=6;
++
+ /** Linear HDR scene → restrained lens glow → grade → one AgX/output transform. */
+ export function createComposite(renderer:WebGPURenderer,scene:Scene,camera:PerspectiveCamera) {
+   const scenePass=pass(scene,camera);
+   const color=scenePass.getTextureNode('output');
++  const depth=scenePass.getTextureNode('depth');
+   const glow=bloom(color,.075,.18,1.6);
+   const vignette=screenUV.sub(.5).length().smoothstep(.24,.73).mul(.065);
+   const graded=color.rgb.add(glow.rgb).mul(vec3(.985,1.01,1.015)).mul(float(1).sub(vignette));
+-  const pipeline=new RenderPipeline(renderer,vec4(graded,color.a));
+-  return {render:()=>pipeline.render(),dispose:()=>{glow.dispose();scenePass.dispose();pipeline.dispose();}};
++  // Jelly desktop: the scene keeps an opaque backdrop so transmission has
++  // something to refract; the window's alpha comes from geometry coverage.
++  const mask=float(1).sub(step(float(.999999),depth.r));
++  // Contact shadow. There is no floor to catch a real one, so the runtime hands
++  // over the body's footprint as a screen-space ellipse and it is composited
++  // straight into the window's alpha, which is what darkens the desktop beneath.
++  // One per thing standing on the floor: the jelly, whatever toy is out, and a
++  // few small ones, so none of them floats.
++  const pools=Array.from({length:CONTACT_SHADOWS},()=>({
++    where:uniform(new Vector4(.5,.5,.001,.001)),darkness:uniform(0),
++  }));
++  const pool=({where,darkness}:typeof pools[number])=>
++    float(1).sub(smoothstep(float(.3),float(1),screenUV.sub(where.xy).div(where.zw).length())).mul(darkness);
++  const shade=pools.map(pool).reduce((a,b)=>a.max(b)).mul(float(1).sub(mask));
++  // The shadow contributes alpha only. Tinting it would have to survive the AgX
++  // and sRGB transforms that run after this, which premultiplied colour does not:
++  // a near-black tint comes out of them pale and the shadow reads as a highlight.
++  // Black premultiplied is black in every space, and alpha alone darkens correctly.
++  const pipeline=new RenderPipeline(renderer,vec4(graded.mul(mask),mask.max(shade)));
++  return {
++    render:()=>pipeline.render(),
++    /** Slot, centre and radii in screen UV, and how dark the contact is. */
++    setShadow:(slot:number,x:number,y:number,rx:number,ry:number,darkness:number)=>{
++      const shadow=pools[slot];if(!shadow)return;
++      shadow.where.value.set(x,y,Math.max(rx,1e-4),Math.max(ry,1e-4));shadow.darkness.value=darkness;
++    },
++    dispose:()=>{glow.dispose();scenePass.dispose();pipeline.dispose();},
++  };
+ }
+diff --git a/src/graphics/scene/renderer.ts b/src/graphics/scene/renderer.ts
+index 26c3b2d..ae131a0 100644
+--- a/src/graphics/scene/renderer.ts
++++ b/src/graphics/scene/renderer.ts
+@@ -4,7 +4,7 @@ import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+ export async function createRenderer(fail:(e:unknown)=>void) {
+   if(!window.isSecureContext)throw new Error('Please open this game over HTTPS or localhost.');
+   if(!navigator.gpu)throw new Error('This browser does not support WebGPU. Open in a WebGPU-capable browser.');
+-  const renderer=new THREE.WebGPURenderer({antialias:true,alpha:false,powerPreference:'high-performance'});
++  const renderer=new THREE.WebGPURenderer({antialias:true,alpha:true,powerPreference:'high-performance'});
+   // r185 normally installs a WebGL fallback factory. Reject before it is invoked.
+   (renderer as unknown as {_getFallback:null})._getFallback=null;
+   let fatal:Error|null=null;
+@@ -38,8 +38,16 @@ export async function createRenderer(fail:(e:unknown)=>void) {
+ 
+ export function resizeView(renderer:THREE.WebGPURenderer,camera:THREE.PerspectiveCamera,controls:OrbitControls) {
+   if(window.innerWidth<=0||window.innerHeight<=0)return;
+-  const width=Math.max(1,window.innerWidth),height=Math.max(1,window.innerHeight);
+-  const dpr=Math.min(window.devicePixelRatio,1.7,Math.sqrt(4_000_000/(width*height)));
++  // Jelly desktop: the shell may ask for a view larger than the window,
++  // when the window is one display's worth of a floor that spans several.
++  const asked=(globalThis as {__petViewport?:{width:number;height:number}}).__petViewport;
++  const width=Math.max(1,asked?.width??window.innerWidth),height=Math.max(1,asked?.height??window.innerHeight);
++  // Jelly desktop: how many pixels the whole desk may be drawn with. Every
++  // render target in the pipeline is this size, so it is most of the GPU memory:
++  // 4M cost about 930 MB of it, 2M about 560 MB, and at 2M only her outline is
++  // a little harder. __petPixelBudget overrides it.
++  const budget=(globalThis as {__petPixelBudget?:number}).__petPixelBudget??2_000_000;
++  const dpr=Math.min(window.devicePixelRatio,1.7,Math.sqrt(budget/(width*height)));
+   renderer.setDrawingBufferSize(width,height,Number.isFinite(dpr)&&dpr>0?dpr:1);
+   camera.aspect=width/height;
+   camera.fov=2*Math.atan(Math.tan(18*Math.PI/180)*Math.max(1,.85/camera.aspect))*180/Math.PI;
+diff --git a/src/worlds/main/facilities/trampoline/facility.ts b/src/worlds/main/facilities/trampoline/facility.ts
+index 43f790f..e9003f5 100644
+--- a/src/worlds/main/facilities/trampoline/facility.ts
++++ b/src/worlds/main/facilities/trampoline/facility.ts
+@@ -13,17 +13,24 @@ export class TrampolineFacility implements Facility {
+   readonly label='Trampoline';
+   readonly cameraDistance=.30;
+   readonly physics:TrampolinePhysics;
+-  private readonly visual=new Trampoline();
++  /** Jelly desktop: the shell shows, hides and scales the toy, and several
++   * riders can share one bed by sharing its visual. */
++  readonly visual:Trampoline;
+   readonly collision:FacilityCollision;
+   private laughStarted=false;
++  private readonly shared:boolean;
+   private readonly audio:FacilityMotionSound;
+-  constructor(scene:Scene,body:SoftBody,shadows:FacilityShadows,sound:FacilitySoundSink=()=>{}) {
++  constructor(scene:Scene,body:SoftBody,shadows:FacilityShadows,sound:FacilitySoundSink=()=>{},
++    seat:{visual?:Trampoline;offsetX?:number;offsetZ?:number;spring?:number}={}) {
++    const shared=seat.visual!==undefined;this.shared=shared;
++    this.visual=seat.visual??new Trampoline();
+     this.collision=new FacilityCollision(body);
+     this.audio=new FacilityMotionSound(sound,{x:TRAMPOLINE.x,y:TRAMPOLINE.height,z:TRAMPOLINE.z});
+-    this.physics=new TrampolinePhysics(body);scene.add(this.visual.group);
++    this.physics=new TrampolinePhysics(body,seat.offsetX??0,seat.offsetZ??0,seat.spring??1);
++    if(!shared)scene.add(this.visual.group);
+     this.collision.registerCylinder(TRAMPOLINE.x,TRAMPOLINE.z,TRAMPOLINE.radius,PHYS.floor,
+       TRAMPOLINE.height+TRAMPOLINE.rimCenterOffset+TRAMPOLINE.rimHalfHeight);
+-    shadows.add(this.visual.group,new Box3(
++    if(!shared)shadows.add(this.visual.group,new Box3(
+       new Vector3(TRAMPOLINE.x-.105,0,TRAMPOLINE.z-.105),
+       new Vector3(TRAMPOLINE.x+.105,TRAMPOLINE.height+.015,TRAMPOLINE.z+.105),
+     ));
+@@ -57,7 +64,9 @@ export class TrampolineFacility implements Facility {
+       TRAMPOLINE.height+TRAMPOLINE.rimCenterOffset+TRAMPOLINE.rimHalfHeight,
+     );
+   }
+-  update() {this.visual.update(this.physics.compression);}
++  update() {if(!this.shared)this.visual.update(this.physics.compression);}
+   reset() {this.audio.reset();this.physics.reset();this.laughStarted=false;this.update();}
+-  dispose() {this.collision.dispose();this.visual.group.removeFromParent();this.visual.dispose();}
++  /** Where this rider stands on the bed. */
++  get seat() {return {x:this.physics.seatX,z:this.physics.seatZ};}
++  dispose() {this.collision.dispose();if(!this.shared){this.visual.group.removeFromParent();this.visual.dispose();}}
+ }
+diff --git a/src/worlds/main/facilities/trampoline/physics.ts b/src/worlds/main/facilities/trampoline/physics.ts
+index c8c0758..c75cc14 100644
+--- a/src/worlds/main/facilities/trampoline/physics.ts
++++ b/src/worlds/main/facilities/trampoline/physics.ts
+@@ -12,6 +12,14 @@ export const TRAMPOLINE={x:.165,z:-.035,radius:.10,matRadius:.075,height:.043,
+  */
+ export class TrampolinePhysics {
+   readonly body:SoftBody;
++  /** Where on the mat this rider sits. The bed pins whoever is on it to one
++   * spot, so several riders need one each or they stand inside each other. */
++  readonly offsetX:number;
++  readonly offsetZ:number;
++  /** The bed is sprung for a 190 g jelly. A rider a sixteenth of that barely
++   * dents it, so the mat acts like a floor and the pump never gets time to
++   * work: it buzzes instead of bouncing. Scale the spring with the rider. */
++  readonly spring:number;
+   readonly restCenter=new Vector3();
+   active=false;
+   supported=true;
+@@ -22,16 +30,18 @@ export class TrampolinePhysics {
+   private emptySpeed=0;
+   private footMass=0;
+   private readonly footWeights:number[]=[];
+-  constructor(body:SoftBody) {
+-    this.body=body;
++  constructor(body:SoftBody,offsetX=0,offsetZ=0,spring=1) {
++    this.body=body;this.offsetX=offsetX;this.offsetZ=offsetZ;this.spring=spring;
+     for(let i=0;i<body.mass.length;i++) {
+       this.restCenter.addScaledVector(new Vector3().fromArray(body.rest,i*3),body.mass[i]/body.totalMass);
+       const weight=Math.max(0,1-body.rest[i*3+1]/.018);
+       this.footWeights.push(weight);this.footMass+=weight*body.mass[i];
+     }
+   }
++  get seatX() {return TRAMPOLINE.x+this.offsetX;}
++  get seatZ() {return TRAMPOLINE.z+this.offsetZ;}
+   get nearby() {
+-    return !this.body.grab&&this.body.grounded&&Math.hypot(this.body.center.x-TRAMPOLINE.x,this.body.center.z-TRAMPOLINE.z)<TRAMPOLINE.interactionRadius;
++    return !this.body.grab&&this.body.grounded&&Math.hypot(this.body.center.x-this.seatX,this.body.center.z-this.seatZ)<TRAMPOLINE.interactionRadius;
+   }
+   get bounceHeight() {return Math.max(0,this.body.center.y-this.restCenter.y-TRAMPOLINE.height);}
+   toggle() {
+@@ -40,15 +50,15 @@ export class TrampolinePhysics {
+     this.active=true;this.supported=true;this.elapsed=0;this.height=this.compression;this.speed=0;
+     const b=this.body;
+     for(let j=0;j<b.x.length;j+=3) {
+-      b.x[j]=b.rest[j]+TRAMPOLINE.x;
++      b.x[j]=b.rest[j]+this.seatX;
+       b.x[j+1]=b.rest[j+1]+TRAMPOLINE.height+this.height+.001;
+-      b.x[j+2]=b.rest[j+2]+TRAMPOLINE.z;
++      b.x[j+2]=b.rest[j+2]+this.seatZ;
+     }
+     b.previous.set(b.x);b.velocity.fill(0);b.wake();b.updateCenter();b.surfaceDirty=true;
+     return true;
+   }
+   leave() {
+-    const b=this.body,dx=TRAMPOLINE.x-.145-b.center.x,dz=TRAMPOLINE.z-b.center.z;
++    const b=this.body,dx=this.seatX-.145-b.center.x,dz=this.seatZ-b.center.z;
+     let low=Infinity;for(let j=1;j<b.x.length;j+=3)low=Math.min(low,b.x[j]);
+     for(let j=0;j<b.x.length;j+=3){b.x[j]+=dx;b.x[j+1]+=PHYS.floor+.003-low;b.x[j+2]+=dz;}
+     b.previous.set(b.x);b.velocity.fill(0);b.updateCenter();b.wake();b.surfaceDirty=true;
+@@ -63,7 +73,7 @@ export class TrampolinePhysics {
+       return;
+     }
+     this.elapsed+=h;
+-    const b=this.body,mass=b.totalMass,stiffness=95;
++    const b=this.body,mass=b.totalMass,stiffness=95*this.spring;
+     let vy=0,footHeight=0,footSpeed=0;
+     for(let i=0;i<b.mass.length;i++) {
+       const j=i*3,w=this.footWeights[i]*b.mass[i]/this.footMass;
+@@ -79,10 +89,13 @@ export class TrampolinePhysics {
+       const target=.003+(TRAMPOLINE.maxBounce-.003)*(1-Math.exp(-this.elapsed/10));
+       const energy=.5*mass*vy*vy+.5*stiffness*footHeight*footHeight+mass*PHYS.gravity*this.height;
+       const missing=Math.max(0,mass*PHYS.gravity*target-energy);
+-      const pump=footSpeed>0?Math.min(1.2,missing*16*footSpeed/(footSpeed*footSpeed+.01)):0;
++      const pump=footSpeed>0?Math.min(1.2*this.spring,missing*16*footSpeed/(footSpeed*footSpeed+.01)):0;
+       // Unilateral support acts through the feet. The FEM transmits the impact
+       // into the torso; the same foot load depresses the visible bed.
+-      force=Math.max(0,-stiffness*footHeight-.25*footSpeed+pump);
++      // Every term here is a force on a 190 g rider: the spring, the damping
++      // and the pump ceiling all scale together, or the damping eats the pump
++      // exactly and a light rider buzzes on the spot instead of bouncing.
++      force=Math.max(0,-stiffness*footHeight-.25*this.spring*footSpeed+pump);
+     } else {
+       this.emptySpeed+=(-3800*this.compression-20*this.emptySpeed)*h;
+       this.compression+=this.emptySpeed*h;
+@@ -91,8 +104,8 @@ export class TrampolinePhysics {
+     b.canSleep=false;b.wake();
+     for(let i=0;i<b.mass.length;i++) {
+       const j=i*3;
+-      b.velocity[j]+=(900*(TRAMPOLINE.x+b.rest[j]-b.x[j])-30*b.velocity[j])*h;
+-      b.velocity[j+2]+=(900*(TRAMPOLINE.z+b.rest[j+2]-b.x[j+2])-30*b.velocity[j+2])*h;
++      b.velocity[j]+=(900*(this.seatX+b.rest[j]-b.x[j])-30*b.velocity[j])*h;
++      b.velocity[j+2]+=(900*(this.seatZ+b.rest[j+2]-b.x[j+2])-30*b.velocity[j+2])*h;
+       // Zero-net-force internal posture: centre of mass stays ballistic in air.
+       b.velocity[j+1]+=(300*(b.center.y+b.rest[j+1]-this.restCenter.y-b.x[j+1])-12*(b.velocity[j+1]-vy)
+         +force*this.footWeights[i]/this.footMass)*h;

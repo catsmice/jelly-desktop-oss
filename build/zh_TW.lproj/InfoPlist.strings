@@ -1,0 +1,4 @@
+/* macOS asks for folder access with these lines (Traditional Chinese). */
+"NSDesktopFolderUsageDescription" = "macOS 把截圖存到桌面時，Jelly 會接住新的截圖。";
+"NSDocumentsFolderUsageDescription" = "Jelly 會接住你所選資料夾裡新的截圖。";
+"NSDownloadsFolderUsageDescription" = "開啟「偵測下載項目」時，Jelly 會在下載完成時接住它們。";
