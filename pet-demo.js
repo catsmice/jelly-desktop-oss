@@ -19,7 +19,7 @@
   const LENS = 14;      // degrees of vertical field of view
   const EYE = 1.0;      // metres above the floor
   const PITCH = 30;     // degrees below horizontal
-  const MARGIN = { x: .78, near: -.84, far: .45 };  // how much of the screen is walkable
+  const MARGIN = { x: .78, near: -.84, far: .8 };  // how much of the screen is walkable
   const FLAVOUR = 'pink';  // pink, lime, strawberry, blueberry or lemon
   // How big she can be made, as a multiple of her size through the lens above.
   const SIZE = { min: .5, max: 2.5 };
@@ -181,6 +181,7 @@
         frame();
         const now = floorAt(ndc.x, ndc.y);
         if (now) { offset.x += body.center.x - now.x; offset.z += body.center.z - now.z; frame(); }
+        if (shownSize === size) retuck();
       }
       requestAnimationFrame(easeSize);
     };
@@ -338,19 +339,84 @@
     };
     // Pinned: she stays on her spot always, whatever you are doing. Moving her
     // moves the spot. The shell keeps it, in desk pixels, between runs.
-    let pinned = false, homeward = null, homewardUntil = 0;
-    const staying = () => pinned || roam.mode === 'stay';
+    let pinned = false, homeward = null, homewardUntil = 0, homewardBest = Infinity, homewardSeen = 0;
+    let homewardInsist = false;
+    // A spot to walk to first. Sent there from her menu (to the edge, or back),
+    // she keeps going until she arrives: a baby climbing on, a doze or the tray
+    // only pause her. The one exception is circling it close by, which eight-way
+    // steering can do for ever; within NEAR_ENOUGH that counts as arriving, and
+    // her fidgets close the rest. A pin's spot after a restart may be out of
+    // reach, so that walk is given up once she stops getting closer.
+    const STALL_MS = 4000, NEAR_ENOUGH = .08;
+    const goTo = (point, insist = false) => {
+      homeward = point;
+      homewardInsist = insist;
+      homewardBest = Infinity;
+      homewardSeen = performance.now();
+      homewardUntil = homewardSeen + STALL_MS;
+    };
+    // Tucked away (from her menu): see onTuck below.
+    let tucked = false, tuckSpot = null, untuckTo = null, heldFrom = null;
+    const staying = () => pinned || tucked || roam.mode === 'stay';
     window.pet?.onPin?.(pin => {
       const was = pinned;
       pinned = !!pin.on;
-      spot = null;   // settle afresh where she is, or walk to the saved spot
-      homeward = null;
+      // Tucked away, she stays on her way to the edge or on it; the pin's spot is
+      // taken when she comes back.
+      if (!tucked) {
+        spot = null;   // settle afresh where she is, or walk to the saved spot
+        homeward = null;
+      }
       if (pinned && pin.at) {
         const at = floorAt(pin.at.x / desk.width * 2 - 1, -(pin.at.y / desk.height * 2 - 1));
-        if (at) { homeward = clampToArea(at); homewardUntil = performance.now() + 20000; }
+        if (at) goTo(clampToArea(at));
       }
       // A little hop says it took.
       if (pinned !== was && !pin.quiet) { wake(performance.now()); press('Space', true); press('Space', false); }
+    });
+    // Tucked away at the edge: she walks to the nearer side of the screen she is
+    // on, at the depth she stands at, and keeps her spot there with her middle on
+    // the edge, so half of her is past it and she peeks in. A side with another
+    // screen beyond it would only show that half over there, so the far side is
+    // taken when it is clear. Dragged out, she is untucked; poked, she is not.
+    const edgeSpot = () => {
+      const [px, py] = deskAt(body.center.x, 0, body.center.z);
+      const mine = screens.find(one => px >= one.x && px < one.x + one.width && py >= one.y && py < one.y + one.height)
+        ?? { x: 0, y: 0, width: desk.width, height: desk.height };
+      const left = mine.x, right = mine.x + mine.width;
+      const clear = edge => {
+        const past = edge === left ? left - 1 : right + 1;
+        return !screens.some(one => one !== mine
+          && past >= one.x && past < one.x + one.width && py >= one.y && py < one.y + one.height);
+      };
+      const sides = Math.abs(px - left) < Math.abs(px - right) ? [left, right] : [right, left];
+      const side = sides.find(clear) ?? sides[0];
+      return floorAt(side / desk.width * 2 - 1, -(py / desk.height * 2 - 1));
+    };
+    // Resizing slides the camera, so a floor point under the old one is somewhere
+    // else on screen now: the edge is found afresh.
+    const retuck = () => {
+      if (!tucked || !tuckSpot) return;
+      const next = edgeSpot();
+      if (!next) return;
+      if (homeward === tuckSpot) homeward = next;
+      if (spot === tuckSpot) spot = next;
+      tuckSpot = next;
+    };
+    window.pet?.onTuck?.(tuck => {
+      if (!!tuck.on === tucked) return;
+      tucked = !!tuck.on;
+      wake(performance.now());
+      spot = null;
+      wasHeld = false; heldFrom = null;
+      if (tucked) {
+        untuckTo = { x: body.center.x, z: body.center.z };
+        tuckSpot = edgeSpot();
+        goTo(tuckSpot, true);
+      } else {
+        goTo(untuckTo && clampToArea(untuckTo), true);   // back where she was
+        tuckSpot = null;
+      }
     });
     let restUntil = 0;
     let giveUpAt = 0;
@@ -520,6 +586,7 @@
       // frame rate instead of fidgeting quietly and dozing off.
       // (`body.grab` is only the first of all her grabs, a baby's included.)
       if (input.grabs.size > 0 || pressing) {
+        if (!wasHeld) heldFrom = { x: body.center.x, z: body.center.z };
         stand();
         destination = null;
         wasHeld = true;   // wherever she is put down becomes her spot
@@ -546,15 +613,37 @@
         destination = null;
         if (toy.state !== 'away') putToyAway();
         const here = { x: body.center.x, z: body.center.z };
-        // Pinned with a spot to go back to (after a restart): walk there first.
-        if (pinned && homeward) {
-          const dx = homeward.x - here.x, dz = homeward.z - here.z;
-          if (Math.hypot(dx, dz) < .03 || now > homewardUntil) { spot = homeward; homeward = null; stand(); }
-          else { walkToward(dx, dz); globalThis.__petWake = true; return; }
+        // Picked up and put down elsewhere: that is her new spot, and tucked
+        // away she has been dragged out. Only poked: she carries on as before.
+        if (wasHeld) {
+          const moved = !heldFrom || Math.hypot(here.x - heldFrom.x, here.z - heldFrom.z) > .025;
+          heldFrom = null;
+          if (moved) {
+            homeward = null;
+            if (tucked) { tucked = false; tuckSpot = null; window.pet?.untucked?.(); }
+          } else if (homeward) wasHeld = false;
+        }
+        // A spot to go to first: her pinned one after a restart, the edge when
+        // tucked away, or back from it.
+        if (homeward) {
+          const dx = homeward.x - here.x, dz = homeward.z - here.z, left = Math.hypot(dx, dz);
+          if (now - homewardSeen > 1000) homewardUntil += now - homewardSeen;   // paused meanwhile
+          homewardSeen = now;
+          if (left < homewardBest - .01) { homewardBest = left; homewardUntil = now + STALL_MS; }
+          const stalled = now > homewardUntil;
+          const keepGoing = homewardInsist && left >= NEAR_ENOUGH;
+          if (left < .03 || (stalled && !keepGoing)) {
+            spot = homeward; homeward = null; stand();
+            // Pinned while tucked, the pin had no spot yet: this is it.
+            if (pinned && !tucked) window.pet?.pinAt?.(...deskAt(spot.x, 0, spot.z));
+          } else {
+            if (stalled) homewardUntil = now + STALL_MS;   // held up, not lost: carry on
+            walkToward(dx, dz); globalThis.__petWake = true; return;
+          }
         }
         if (!spot || wasHeld) {
-          spot = here; wasHeld = false; stayAwakeSince = now;
-          if (pinned) window.pet?.pinAt?.(...deskAt(here.x, 0, here.z));   // remember it
+          spot = tucked && tuckSpot ? tuckSpot : here; wasHeld = false; stayAwakeSince = now;
+          if (pinned && !tucked) window.pet?.pinAt?.(...deskAt(here.x, 0, here.z));   // remember it
         }
         // Woken, or just arrived: the doze clock starts again.
         if (stayAwakeSince < wokeAt) stayAwakeSince = wokeAt;
@@ -584,6 +673,9 @@
       spot = null;
       stayAwakeSince = 0;
       homeward = null;
+      // Put down while roaming: nothing to remember, and a stale hold would
+      // later read as being dragged out of a tuck.
+      wasHeld = false; heldFrom = null;
       // A walk begun before you moved to another screen may lead onto yours.
       if (destination && !onRoamScreen(destination.x, destination.z)) destination = null;
 

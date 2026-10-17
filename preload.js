@@ -40,10 +40,11 @@ contextBridge.exposeInMainWorld('pet', {
   clearTray: () => ipcRenderer.send('pet-tray-clear'),
   preview: key => ipcRenderer.send('pet-preview', key),
   throwAway: key => ipcRenderer.send('pet-throw', key),
-  // Cropping a screenshot: the tray asks, the crop window shows it and answers.
-  cropOpen: key => ipcRenderer.send('pet-crop-open', key),
-  cropDone: (key, rect) => ipcRenderer.send('pet-crop-done', key, rect),
-  onCrop: handle => ipcRenderer.on('pet-crop', (_event, key, src, width, height) => handle(key, src, width, height)),
+  // Editing a picture (crop, pixelate, box, arrow): the tray asks, the edit
+  // window shows it and answers with a crop, or with the finished PNG's bytes.
+  editOpen: key => ipcRenderer.send('pet-edit-open', key),
+  editDone: (key, result) => ipcRenderer.send('pet-edit-done', key, result),
+  onEdit: handle => ipcRenderer.on('pet-edit', (_event, key, src, width, height) => handle(key, src, width, height)),
   onTray: handle => ipcRenderer.on('pet-tray', (_event, items, opening, filing) => handle(items, opening, filing)),
   onTrayClose: handle => ipcRenderer.on('pet-tray-closing', () => handle()),
   // Her size: scroll or pinch over her, and the size she was left at.
@@ -57,4 +58,8 @@ contextBridge.exposeInMainWorld('pet', {
   menu: () => ipcRenderer.send('pet-menu'),
   onPin: handle => ipcRenderer.on('pet-pin', (_event, pin) => handle(pin)),
   pinAt: (x, y) => ipcRenderer.send('pet-pin-at', x, y),
+  // Tucked away at the edge of her screen: the menu tucks her, and she says when
+  // being dragged out has untucked her.
+  onTuck: handle => ipcRenderer.on('pet-tuck', (_event, tuck) => handle(tuck)),
+  untucked: () => ipcRenderer.send('pet-untucked'),
 });

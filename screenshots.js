@@ -83,7 +83,7 @@ const watch = (swallow, { folder, filing }) => {
   }
   const inFolder = file => path.dirname(path.resolve(file)) === folder;
   // Without filing, which of the folder's files are hers: the marked ones, and
-  // crops she made herself (a crop is a new file, and carries no mark).
+  // edited copies she made herself (a new file, carrying no mark).
   const mine = new Set();
   const expected = new Set();
   const owns = file => inFolder(file) && (filing || mine.has(file));
@@ -156,9 +156,9 @@ const watch = (swallow, { folder, filing }) => {
   return {
     folder,
     filing,
-    /** Whether this file is one of hers: crop it, throw it away, file it. */
+    /** Whether this file is one of hers: throw it away, file it. */
     owns,
-    /** A file she is about to make in the folder (a crop), to catch as hers. */
+    /** A file she is about to make in the folder (an edited copy), to catch as hers. */
     expect: one => expected.add(one),
     /** Label for a card: the time it was taken. */
     label: one => {

@@ -64,8 +64,8 @@ What you can do with her:
 | in the tray: double-click a card, or Space over it | Quick Look, the system's preview |
 | in the tray: the trash button on a card, or Delete | screenshots and recordings to the Trash; other files are only let go of |
 | two-finger scroll or pinch over her | she gets bigger or smaller, and stays that size |
-| in the tray: the crop button on a screenshot, or C | crop a copy; Enter saves `… (cropped).png` as a new card |
-| right-click her | her menu: **Pin here** keeps her on her spot (see "Pinned to a spot"); **Fetch downloads** switches the downloads catcher; **Screenshots** picks her folder and filing (see "Catching screenshots") |
+| in the tray: the edit button on a picture, or C | crop, pixelate, box or arrow on a copy; Enter saves `… (edited)` beside it as a new card (a PNG when anything was drawn) |
+| right-click her | her menu: **Pin here** keeps her on her spot (see "Pinned to a spot"); **Fetch downloads** switches the downloads catcher; **Screenshots** picks her folder and filing (see "Catching screenshots"); **Tuck away at the edge** sends her to the side (see "Tucked away at the edge"); **Language** (see "Her language") |
 | download something | she swallows it when it finishes (see "Catching downloads") |
 | take a screenshot | if screenshots are saved to her inbox, she swallows it (see "Catching screenshots") |
 
@@ -401,7 +401,7 @@ How much is hers depends on **Screenshots → File into month folders**:
 
 - **Off** (the default): the folder is shared, like the Desktop. Only files macOS
   marked as screenshots (the `kMDItemIsScreenCapture` attribute, set whatever the
-  system language) are caught, plus crops she made, and nothing is ever moved. Screen
+  system language) are caught, plus edited copies she made, and nothing is ever moved. Screen
   recordings carry no such mark, so they are not caught.
 - **On**: the folder is kept just for screenshots, such as
   `~/Pictures/Screenshots/Inbox`. Every picture and recording in it is caught
@@ -442,7 +442,7 @@ makes macOS ask for access), kept in `jelly.json`.
 - macOS protects `~/Downloads`; the first watch may ask for access. Without it, the
   terminal says `Downloads: cannot watch …`.
 
-## Screenshots for AI apps: 1x copies and cropping
+## Screenshots for AI apps: 1x copies and editing
 
 An AI app counts an image's tokens by its pixel area (Claude: ceil(w/28) x ceil(h/28),
 capped at 4,784 on current models), not its file size, so compressing a PNG to JPEG
@@ -455,23 +455,45 @@ The original is never changed. **Screenshots → Shrink to 1× when taken out** 
 turns it off; the card's tooltip says what it will drag out as. Files she was fed are
 never shrunk.
 
-Cropping is per screenshot, when wanted: the crop button on a screenshot card (or C
-over it) opens `crop.html` in a window of her jelly, 80% of the screen, above her.
-Drag out an area, adjust it by its corners, Enter to save. `sips` crops the original
-into `… (cropped).png` beside it, at full resolution and 144 dpi, so the inbox catches
-it as a new card with its own 1x copy. The picture is served to the crop page by a
-one-off token (`/file/<token>`), so the page can load that file and no other. While the
-crop window is open the tray stays open, as for Quick Look.
+Editing works on any picture she holds (png, jpg, heic, tiff), when wanted: the edit
+button on its card (or C over it) opens `edit.html` in a window of her jelly, 80% of
+the screen, above her. It has four tools: **crop** (drag out an area, adjust it by its
+corners), **pixelate** (coarse blocks over anything private), **box** and **arrow**
+(red, sized to the picture so they still read on the 1x copy). ⌘Z takes back the last
+mark, Enter saves, Esc cancels. The result is a new file beside the original, which is
+never changed:
+
+- A crop on its own goes back to the shell as a rectangle, and `sips` cuts
+  `… (edited).<ext>` from the original at full resolution, keeping its colour profile.
+- Anything drawn goes back as a finished PNG (`… (edited).png`), drawn by the page on a
+  full-resolution Display P3 canvas, crop applied. Pixelated areas are flattened into
+  it, so what was under them is gone from the copy. The shell checks the PNG header and
+  only saves for the picture it opened.
+
+HEIC and TIFF are turned into a PNG for the page to draw (Electron's `nativeImage` reads
+neither, so they are measured after that). The PNG is the whole unedited picture, so it
+goes in a temp folder of its own, apart from the one `/thumbs/` serves, and is removed
+as soon as the edit ends. In the
+screenshot folder the watcher catches the copy as a new card with its own 1x copy;
+anywhere else (Downloads, a file she was fed) she is handed it directly, and like any
+file that is not a screenshot it goes out as it is, with no 1x copy. A folder she cannot
+write to means no copy; the log says why. The picture is served to the edit page by a
+random token (`/file/<token>`) that lasts until the edit ends, so the page can load that
+file and no other. Only the tray may open an edit and only the edit window may finish
+it; the finished PNG must be a byte array no bigger than the picture could make, and is
+written only if nothing, a dangling link included, has that name. While the
+edit window is open the tray stays open, as for Quick Look. The original, unedited file
+is still where it was, so only the edited card is safe to share.
 
 ## Her language
 
 She speaks English or Traditional Chinese: whatever the system prefers first
 (Traditional Chinese for zh-Hant, zh-TW, zh-HK and zh-MO, English for everything else,
 Simplified Chinese included), or what is picked under **Language** in her menu, kept in
-`jelly.json`. Her menus, dialogs, tray, crop window, loading line and macOS's
+`jelly.json`. Her menus, dialogs, tray, edit window, loading line and macOS's
 folder-access prompts are translated; her log stays in English.
 
-- Every string is in `i18n.js`. The shell uses it directly; the tray and crop pages are
+- Every string is in `i18n.js`. The shell uses it directly; the tray and edit pages are
   handed their table as `window.jellyWords` when they are served, so a change of
   language re-serves the tray. The loading line changes at the next start.
 - The game's own loading steps are English only, so in Chinese the pill shows just
@@ -493,6 +515,23 @@ on the same pixel as before; her feet stay where they were.
 The render loop skips frames while her body is at rest and nobody holds her, and a
 resize changes only the camera, so it has to ask to be drawn. Before it did, every
 number said she had grown and every capture showed her the same size.
+
+## Left out of screenshots
+
+Her window is made with `setContentProtection(true)` (`main.js`), so screenshots, screen
+recordings and screen sharing show the desktop without her. Her tray and edit windows
+are not, so they can be captured. This also means a recording of her for a bug report
+or a README comes out empty: comment that line out under `npm start` to film her.
+
+## Her own pages
+
+Her pages are served by her local server, which answers only requests addressed to
+`127.0.0.1:<port>` (DNS rebinding) and refuses a malformed URL. The catcher, tray and
+edit pages carry a Content-Security-Policy that allows nothing but themselves, their
+thumbnails and the picture being edited; the game's page is upstream's build and has
+none. No window may navigate away from its page or open a window of its own
+(`web-contents-created` in `main.js`), since either would take the preload, and her
+bridge to the shell, along. Files dropped on her are taken only as absolute paths.
 
 ## Staying out of your way
 
@@ -544,6 +583,30 @@ Dragging her moves the spot and she stays pinned; right-clicking again unpins he
 - Her window sits at screen-saver level, above where macOS draws menus, so it
   covered her own menu. It steps down to floating while the menu is open and back
   up when it closes.
+
+## Tucked away at the edge
+
+**Tuck away at the edge** in her menu sends her to the nearer left or right side of
+the screen she is on, at the depth she stands at, and keeps her there with her middle
+on the edge: half of her is past it, off the window, so she peeks in. A side with
+another screen beyond it would show that half over there, so the other side is taken
+when it is clear. Tucked counts as staying put (fidgets, babies, no trampoline,
+dozing), and her spot is the edge.
+
+- Choosing it again walks her back to where she was. Dragging her out (moved more
+  than 2.5 cm on the floor) also untucks her, and the page tells the shell so the
+  menu's tick is cleared. A poke does not.
+- Not kept between runs; she starts in the open. Pinned and tucked, the pin's spot is
+  left as it was and she goes back to it when untucked. Pinned *while* tucked, the
+  walk to the edge carries on, and the spot she walks back to becomes the pin's.
+- A resize slides the camera, so once the size settles the edge is found again.
+- The walk there uses the same "spot to go to first" as a pin after a restart
+  (`homeward`), but sent from her menu she does not give up on it: a baby climbing on,
+  a doze or the tray only pause her. Circling it within 8 cm counts as arriving, since
+  eight-way steering can circle a point for ever. (A pin's spot after a restart may be
+  out of reach, so that walk ends once she stops getting closer for 4 s.) The walkable area does not apply to it:
+  the edge is outside it on purpose. The babies stay inside it, so they wait a
+  little way in from her.
 
 ## Showing what she has swallowed
 
@@ -632,8 +695,8 @@ the implicit field, so an arbitrary GLB would need its own tetrahedralisation.
 | `build/` | The app icon (`icon.icns`, from `icon-1024.png`) |
 | `icons/` | Her menu-bar icon, a template image macOS tints |
 | `tray.html` | The tray: her cards spread out flat on a soft slab of her jelly |
-| `crop.html` | Cropping one screenshot: the picture large, a selection, Enter to save a copy |
-| `app/` | Prebuilt Jelly Baby with the patch below applied (18 MB) |
+| `edit.html` | Editing one picture: crop, pixelate, box, arrow; Enter saves a copy |
+| `app/` | Prebuilt Jelly Baby with the patch below applied (21 MB) |
 | `jelly-transparent.diff` | The patch, against a fresh clone of the upstream repo |
 | `upstream/shelf.ts` | New upstream file: the cards she carries inside her |
 | `upstream/babies.ts` | New upstream file: the small jellies |
@@ -797,7 +860,8 @@ These are demo shortcuts, not the shape the real thing should take.
   honest but is not where behaviour belongs. Eight-way steering also means the jelly
   can circle a destination, so it gives up on one after nine seconds.
 - The window covers the menu bar, harmlessly, since clicks pass through. The
-  walkable area stops well short of the top of the screen.
+  walkable area reaches to about a tenth of the screen below the top (`MARGIN.far`,
+  .8 in screen coordinates; it was .45, which kept the top quarter out of reach).
 - A drag across the seam between two displays used to fail occasionally. Two causes
   are closed and it has not recurred.
 - The tray is pink whatever flavour she is; it does not follow `FLAVOUR` yet.

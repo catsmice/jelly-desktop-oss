@@ -1,0 +1,320 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Edit</title>
+<style>
+  /* Editing one picture: the picture large, in a frame of her jelly, with four
+     tools. Crop drags out a selection to keep; pixelate, box and arrow draw on
+     it. The result is a new file beside the original; the original is never
+     changed. */
+  :root{
+    --flavour:214 118 146;
+    --flavour-deep:150 52 84;
+    --ink:#3a1024;
+  }
+  html,body{margin:0;height:100%;overflow:hidden;background:transparent;
+    font-family:ui-rounded,"SF Pro Rounded",system-ui,sans-serif;-webkit-user-select:none;user-select:none}
+  .frame{position:absolute;inset:8px;border-radius:26px;display:flex;flex-direction:column;
+    background:linear-gradient(rgb(var(--flavour) / .96),rgb(var(--flavour) / .98));
+    box-shadow:inset 0 2px 0 rgb(255 255 255 / .55),inset 0 -10px 0 rgb(var(--flavour-deep) / .35),0 10px 30px rgb(0 0 0 / .35)}
+  .stage{position:relative;flex:1;margin:18px 18px 0;display:grid;place-items:center;min-height:0}
+  .pic{position:relative;max-width:100%;max-height:100%;line-height:0;border-radius:6px;overflow:hidden;
+    box-shadow:0 4px 14px rgb(var(--flavour-deep) / .5);cursor:crosshair}
+  .pic img{display:block;max-width:100%;max-height:calc(100vh - 110px);pointer-events:none}
+  .ink{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  .shade{position:absolute;background:rgb(30 10 20 / .5);pointer-events:none}
+  .sel{position:absolute;outline:2px solid #fff;box-shadow:0 0 0 1px rgb(var(--flavour-deep) / .8);cursor:move}
+  .sel[hidden]{display:none}
+  /* While drawing, the crop stays on show but cannot be grabbed. */
+  .pic.drawing .sel,.pic.drawing .grip{pointer-events:none}
+  .pic.drawing .grip{display:none}
+  .grip{position:absolute;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;background:#fff;
+    box-shadow:0 1px 3px rgb(0 0 0 / .4)}
+  .size{position:absolute;left:0;top:-26px;font:700 11px/1 ui-monospace,Menlo,monospace;color:#fff;
+    background:rgb(var(--flavour-deep));padding:5px 7px;border-radius:6px;white-space:nowrap}
+  .bar{display:flex;align-items:center;gap:10px;padding:12px 22px 20px;color:#fff;font-size:13px}
+  .bar .hint{flex:1;min-width:0;opacity:.92;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  button{font-weight:700;font-size:13px;line-height:1;font-family:inherit;border:0;border-radius:999px;padding:9px 16px;cursor:pointer;
+    transition:transform .15s cubic-bezier(.34,1.56,.64,1)}
+  button:hover{transform:scale(1.06)}
+  button:focus-visible{outline:2px solid #fff;outline-offset:2px}
+  button:disabled{opacity:.5;cursor:default;transform:none}
+  .tools{display:flex;gap:2px;padding:3px;border-radius:999px;background:rgb(var(--flavour-deep) / .45);
+    box-shadow:inset 0 1px 2px rgb(0 0 0 / .2)}
+  .tool{display:flex;align-items:center;gap:6px;padding:7px 12px;background:transparent;color:#fff}
+  .tool svg{width:14px;height:14px}
+  .tool[aria-pressed="true"]{background:#fff;color:rgb(var(--flavour-deep));box-shadow:0 1px 3px rgb(0 0 0 / .25)}
+  .undo{width:31px;height:31px;padding:0;display:grid;place-items:center;
+    background:rgb(var(--flavour-deep) / .85);color:#fff;box-shadow:inset 0 1px 0 rgb(255 255 255 / .35)}
+  .undo svg{width:14px;height:14px}
+  .save{background:#fff;color:rgb(var(--flavour-deep))}
+  .cancel{background:rgb(var(--flavour-deep) / .85);color:#fff;box-shadow:inset 0 1px 0 rgb(255 255 255 / .35)}
+</style>
+<div class="frame">
+  <div class="stage">
+    <div class="pic" id="pic">
+      <img id="img" alt="">
+      <canvas class="ink" id="ink"></canvas>
+      <div class="shade" id="s1"></div><div class="shade" id="s2"></div><div class="shade" id="s3"></div><div class="shade" id="s4"></div>
+      <div class="sel" id="sel" hidden>
+        <span class="size" id="size"></span>
+        <span class="grip" data-h="nw" style="left:0;top:0;cursor:nwse-resize"></span>
+        <span class="grip" data-h="ne" style="left:100%;top:0;cursor:nesw-resize"></span>
+        <span class="grip" data-h="sw" style="left:0;top:100%;cursor:nesw-resize"></span>
+        <span class="grip" data-h="se" style="left:100%;top:100%;cursor:nwse-resize"></span>
+      </div>
+    </div>
+  </div>
+  <div class="bar">
+    <div class="tools" id="tools">
+      <button class="tool" type="button" data-tool="crop"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3.5 1v9.5H13M1 3.5h9.5V13"/></svg><span></span></button>
+      <button class="tool" type="button" data-tool="pixelate"><svg viewBox="0 0 14 14" fill="currentColor"><rect x="1" y="1" width="4" height="4"/><rect x="9" y="1" width="4" height="4"/><rect x="5" y="5" width="4" height="4"/><rect x="1" y="9" width="4" height="4"/><rect x="9" y="9" width="4" height="4"/></svg><span></span></button>
+      <button class="tool" type="button" data-tool="box"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="1.5" y="2.5" width="11" height="9" rx="1"/></svg><span></span></button>
+      <button class="tool" type="button" data-tool="arrow"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12L11.5 2.5M5.5 2.5h6v6"/></svg><span></span></button>
+    </div>
+    <button class="undo" id="undo" type="button" disabled><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 2L1.5 5l3 3"/><path d="M1.5 5h7a4 4 0 010 8H6"/></svg></button>
+    <span class="hint" id="hint"></span>
+    <button class="cancel" id="cancel" type="button"></button>
+    <button class="save" id="save" type="button" disabled></button>
+  </div>
+</div>
+<script>
+  const img = document.getElementById('img'), pic = document.getElementById('pic');
+  const ink = document.getElementById('ink'), pen = ink.getContext('2d');
+  const selEl = document.getElementById('sel'), sizeEl = document.getElementById('size');
+  const save = document.getElementById('save'), undo = document.getElementById('undo'), hint = document.getElementById('hint');
+  const toolButtons = [...document.querySelectorAll('.tool')];
+  // Her words, handed over by the shell as it serves this page.
+  const say = (key, values = {}) => (window.jellyWords?.[key] ?? key)
+    .replace(/\{(\w+)\}/g, (_, name) => values[name] ?? '');
+  document.title = say('editTitle');
+  document.getElementById('cancel').textContent = say('cancel');
+  save.textContent = say('editSave');
+  undo.title = say('undo');
+  const TOOL_WORDS = { crop: 'toolCrop', pixelate: 'toolPixelate', box: 'toolBox', arrow: 'toolArrow' };
+  for (const one of toolButtons) one.querySelector('span').textContent = say(TOOL_WORDS[one.dataset.tool]);
+  const shades = ['s1', 's2', 's3', 's4'].map(id => document.getElementById(id));
+
+  let key = null;
+  let picture = null;      // the picture's own pixels, as an ImageBitmap
+  let natural = { w: 1, h: 1 };
+  let tool = 'crop';
+  let sel = null;          // the crop, in displayed pixels: { x, y, w, h }
+  let marks = [];          // what is drawn, in the picture's own pixels: { kind, x1, y1, x2, y2 }
+  let draft = null;        // the mark being drawn
+  let drag = null;         // what the pointer is doing
+  let saving = false;
+  let unreadable = false;  // the picture could not be loaded
+  // Sizes follow the picture, so a mark looks the same on a Retina screenshot
+  // and on its 1x copy, where everything is halved.
+  let LINE = 4, BLOCK = 12;
+  const RED = '#ff3b30';
+
+  const box = () => pic.getBoundingClientRect();
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const cropping = () => sel && sel.w >= 4 && sel.h >= 4;
+  // Displayed pixels to the picture's own pixels, which is what is saved.
+  const toImage = r => {
+    const b = box(), sx = natural.w / b.width, sy = natural.h / b.height;
+    const x = clamp(Math.round(r.x * sx), 0, natural.w - 1), y = clamp(Math.round(r.y * sy), 0, natural.h - 1);
+    return { x, y, w: clamp(Math.round(r.w * sx), 1, natural.w - x), h: clamp(Math.round(r.h * sy), 1, natural.h - y) };
+  };
+  const pointAt = event => {
+    const b = box();
+    return { x: clamp(event.clientX - b.left, 0, b.width), y: clamp(event.clientY - b.top, 0, b.height) };
+  };
+
+  // Draws the picture and its marks onto a canvas, `scale` canvas pixels to one
+  // of the picture's. The same drawing serves the window and the saved file.
+  function render(ctx, scale, all) {
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    ctx.drawImage(picture, 0, 0, natural.w * scale, natural.h * scale);
+    ctx.scale(scale, scale);
+    for (const mark of all) {
+      const left = Math.min(mark.x1, mark.x2), top = Math.min(mark.y1, mark.y2);
+      const w = Math.abs(mark.x2 - mark.x1), h = Math.abs(mark.y2 - mark.y1);
+      if (mark.kind === 'pixelate') pixelate(ctx, scale, left, top, w, h);
+      else if (mark.kind === 'box') {
+        ctx.strokeStyle = RED; ctx.lineWidth = LINE; ctx.lineJoin = 'round';
+        ctx.strokeRect(left, top, w, h);
+      } else if (mark.kind === 'arrow') arrow(ctx, mark);
+    }
+    ctx.restore();
+  }
+  // Coarse blocks, on a grid of the picture's own pixels. Each block is the
+  // average of what was under it, so nothing beneath can be read back.
+  function pixelate(ctx, scale, left, top, w, h) {
+    const x0 = Math.floor(left / BLOCK) * BLOCK, y0 = Math.floor(top / BLOCK) * BLOCK;
+    const x1 = Math.min(Math.ceil((left + w) / BLOCK) * BLOCK, natural.w), y1 = Math.min(Math.ceil((top + h) / BLOCK) * BLOCK, natural.h);
+    const across = Math.max(1, Math.ceil((x1 - x0) / BLOCK)), down = Math.max(1, Math.ceil((y1 - y0) / BLOCK));
+    const small = document.createElement('canvas');
+    small.width = across; small.height = down;
+    const sc = small.getContext('2d');
+    sc.imageSmoothingQuality = 'high';
+    sc.drawImage(ctx.canvas, x0 * scale, y0 * scale, (x1 - x0) * scale, (y1 - y0) * scale, 0, 0, across, down);
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(small, 0, 0, across, down, x0, y0, across * BLOCK, down * BLOCK);
+    ctx.restore();
+  }
+  function arrow(ctx, { x1, y1, x2, y2 }) {
+    const angle = Math.atan2(y2 - y1, x2 - x1), length = Math.hypot(x2 - x1, y2 - y1);
+    const head = Math.min(LINE * 4.5, length * .6), wide = head * .6;
+    const bx = x2 - Math.cos(angle) * head * .8, by = y2 - Math.sin(angle) * head * .8;
+    ctx.strokeStyle = ctx.fillStyle = RED; ctx.lineWidth = LINE; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(bx, by); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - Math.cos(angle) * head + Math.sin(angle) * wide, y2 - Math.sin(angle) * head - Math.cos(angle) * wide);
+    ctx.lineTo(x2 - Math.cos(angle) * head - Math.sin(angle) * wide, y2 - Math.sin(angle) * head + Math.cos(angle) * wide);
+    ctx.closePath(); ctx.fill();
+  }
+
+  function draw() {
+    // The marks, over the picture.
+    const all = draft ? [...marks, draft] : marks;
+    if (picture && all.length) {
+      const b = box(), ratio = devicePixelRatio || 1;
+      const w = Math.round(b.width * ratio), h = Math.round(b.height * ratio);
+      if (ink.width !== w || ink.height !== h) { ink.width = w; ink.height = h; }
+      render(pen, w / natural.w, all);
+      ink.hidden = false;
+    } else ink.hidden = true;
+    // The crop, with everything outside it dimmed.
+    if (!cropping()) {
+      selEl.hidden = true;
+      shades.forEach(s => { s.style.cssText = 'display:none'; });
+    } else {
+      selEl.hidden = false;
+      Object.assign(selEl.style, { left: sel.x + 'px', top: sel.y + 'px', width: sel.w + 'px', height: sel.h + 'px' });
+      const r = toImage(sel);
+      sizeEl.textContent = `${r.w} × ${r.h}`;
+      sizeEl.style.top = sel.y < 30 ? (sel.h + 6) + 'px' : '-26px';
+      const [a, c, d, e] = shades;
+      a.style.cssText = `display:block;left:0;top:0;width:100%;height:${sel.y}px`;
+      c.style.cssText = `display:block;left:0;top:${sel.y + sel.h}px;width:100%;bottom:0`;
+      d.style.cssText = `display:block;left:0;top:${sel.y}px;width:${sel.x}px;height:${sel.h}px`;
+      e.style.cssText = `display:block;left:${sel.x + sel.w}px;top:${sel.y}px;right:0;height:${sel.h}px`;
+    }
+    const something = marks.length > 0 || cropping();
+    save.disabled = !something || saving;
+    undo.disabled = !something;
+    pic.classList.toggle('drawing', tool !== 'crop');
+    for (const one of toolButtons) one.setAttribute('aria-pressed', String(one.dataset.tool === tool));
+    hint.textContent = unreadable ? say('editUnreadable') : tool === 'crop' ? say(cropping() ? 'cropAdjust' : 'cropStart')
+      : say(something ? 'editReady' : tool + 'Start');
+  }
+
+  const choose = which => { tool = which; drag = null; draft = null; draw(); };
+  for (const one of toolButtons) one.addEventListener('click', () => choose(one.dataset.tool));
+
+  pic.addEventListener('pointerdown', event => {
+    if (!picture) return;
+    const { x, y } = pointAt(event);
+    if (tool === 'crop') {
+      const grip = event.target.dataset?.h;
+      if (grip) drag = { kind: 'grip', grip, start: { ...sel } };
+      else if (sel && event.target === selEl) drag = { kind: 'move', from: { x, y }, start: { ...sel } };
+      else { drag = { kind: 'new', from: { x, y } }; sel = { x, y, w: 0, h: 0 }; }
+    } else {
+      const k = natural.w / box().width;
+      drag = { kind: 'mark' };
+      draft = { kind: tool, x1: x * k, y1: y * k, x2: x * k, y2: y * k };
+    }
+    pic.setPointerCapture(event.pointerId);
+  });
+  pic.addEventListener('pointermove', event => {
+    if (!drag) return;
+    const b = box(), { x, y } = pointAt(event);
+    if (drag.kind === 'mark') {
+      const k = natural.w / b.width;
+      draft.x2 = x * k; draft.y2 = y * k;
+    } else if (drag.kind === 'new') {
+      sel = { x: Math.min(x, drag.from.x), y: Math.min(y, drag.from.y), w: Math.abs(x - drag.from.x), h: Math.abs(y - drag.from.y) };
+    } else if (drag.kind === 'move') {
+      const s = drag.start;
+      sel = { ...s, x: clamp(s.x + x - drag.from.x, 0, b.width - s.w), y: clamp(s.y + y - drag.from.y, 0, b.height - s.h) };
+    } else {
+      const s = drag.start, g = drag.grip;
+      let left = s.x, top = s.y, right = s.x + s.w, bottom = s.y + s.h;
+      if (g.includes('w')) left = x; if (g.includes('e')) right = x;
+      if (g.includes('n')) top = y; if (g.includes('s')) bottom = y;
+      sel = { x: Math.min(left, right), y: Math.min(top, bottom), w: Math.abs(right - left), h: Math.abs(bottom - top) };
+    }
+    draw();
+  });
+  pic.addEventListener('pointerup', () => {
+    if (drag?.kind === 'mark' && draft) {
+      // A click without a drag draws nothing.
+      const shown = Math.hypot(draft.x2 - draft.x1, draft.y2 - draft.y1) * box().width / natural.w;
+      if (shown >= 4) marks.push(draft);
+      draft = null;
+    }
+    drag = null;
+    draw();
+  });
+
+  // Undo takes back the last mark; with none left, the crop.
+  const takeBack = () => {
+    if (marks.length) marks.pop();
+    else sel = null;
+    draw();
+  };
+  undo.addEventListener('click', takeBack);
+
+  // A crop on its own goes back as a rectangle, for the shell to cut from the
+  // original. Anything drawn goes back as the finished picture, at full size.
+  async function result() {
+    if (!marks.length) return cropping() ? { rect: toImage(sel) } : null;
+    const full = document.createElement('canvas');
+    full.width = natural.w; full.height = natural.h;
+    render(full.getContext('2d', { colorSpace: 'display-p3' }), 1, marks);
+    let out = full;
+    if (cropping()) {
+      const r = toImage(sel);
+      out = document.createElement('canvas');
+      out.width = r.w; out.height = r.h;
+      out.getContext('2d', { colorSpace: 'display-p3' }).drawImage(full, r.x, r.y, r.w, r.h, 0, 0, r.w, r.h);
+    }
+    const blob = await new Promise(done => out.toBlob(done, 'image/png'));
+    return blob ? { png: new Uint8Array(await blob.arrayBuffer()) } : null;
+  }
+  const done = async keep => {
+    if (saving) return;
+    saving = true; draw();
+    let answer = null;
+    try { if (keep) answer = await result(); }
+    catch (error) { console.log('could not make the edited picture: ' + error.message); }
+    window.pet?.editDone?.(key, answer);
+  };
+  save.addEventListener('click', () => done(true));
+  document.getElementById('cancel').addEventListener('click', () => done(false));
+  addEventListener('keydown', event => {
+    if (event.key === 'Escape') done(false);
+    else if (event.key === 'Enter' && !save.disabled) done(true);
+    else if (event.key === 'z' && event.metaKey && !event.shiftKey) { event.preventDefault(); takeBack(); }
+  });
+  addEventListener('resize', () => { sel = null; draw(); });
+
+  // Which picture: the shell says, and serves the picture itself. Its size is
+  // taken from the pixels, which is what the saved file is cut from.
+  window.pet?.onEdit?.(async (which, src, w, h) => {
+    key = which; natural = { w, h }; sel = null; marks = []; draft = null; drag = null;
+    tool = 'crop'; saving = false; picture = null; unreadable = false;
+    img.src = src;
+    draw();
+    try {
+      const bitmap = await createImageBitmap(await (await fetch(src)).blob());
+      if (key !== which) return;
+      picture = bitmap;
+      natural = { w: bitmap.width, h: bitmap.height };
+      LINE = Math.max(3, Math.round(natural.w / 380));
+      BLOCK = Math.max(10, Math.round(Math.max(natural.w, natural.h) / 140));
+    } catch (error) {
+      console.log('could not read the picture: ' + error.message);
+      if (key === which) unreadable = true;
+    }
+    draw();
+  });
+</script>

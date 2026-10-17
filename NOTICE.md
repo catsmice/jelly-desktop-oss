@@ -21,7 +21,7 @@ the same licence.
   `bench-baby.mjs` (the babies' model and its benchmark).
 - The rest is the Electron shell around her, written for this project: `main.js`,
   `preload.js`, `pet-demo.js`, `screenshots.js`, `downloads.js`, `i18n.js`, `tray.html`
-  and `crop.html`, the icons, and the packaging.
+  and `edit.html`, the icons, and the packaging.
 
 ## Third-party assets
 

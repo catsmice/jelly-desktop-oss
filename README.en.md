@@ -67,9 +67,16 @@ Filing is not offered for your home folder, Desktop, Documents or Downloads.
 
 A screenshot from a Retina screen has twice the width and height of what you saw. When you drag a screenshot out of the tray, Jelly hands over a copy scaled to 1×, so 3024×1964 becomes 1512×982. In Claude and similar AI apps that uses about 60% fewer tokens. The original is left as it is. Turn it off under Screenshots → Shrink to 1× when taken out.
 
-### Cropping
+### Editing: crop, pixelate, box and arrow
 
-Hover a screenshot card and press C, or click its crop button. Drag out the part to keep and press Enter. The crop is saved next to the original with "(cropped)" added to its name, and the original is left as it is.
+Any picture card can be edited: a screenshot, a downloaded image, or one you gave her. Hover the card and press C, or click its edit button, and the edit window opens with four tools:
+
+- Crop: drag out the part to keep, and drag the corners to adjust it.
+- Pixelate: drag over a password, a customer's name or an account number, and it turns into coarse blocks.
+- Box: a red box around what matters.
+- Arrow: drag from where it starts to what it points at.
+
+Press ⌘Z to undo the last step and Enter to save. The edited picture is saved next to the original with "(edited)" added to its name and comes back to her as a new card. The original is left as it is, so anything you pixelated can still be read there. Share the new one.
 
 ## Downloads
 
@@ -81,12 +88,17 @@ On the screen you are working on, she stays where she is, shuffling about on the
 
 To keep her in one spot, choose Pin here in her menu. Dragging her while pinned moves the spot.
 
+When she is in front of a window you need, choose Tuck away at the edge. She walks to the nearer side of the screen and waits there with half of her showing. Choose it again and she walks back to where she was, or drag her out.
+
+Screenshots and screen sharing leave her out, so you can take a full-screen shot without moving her first.
+
 ## Her menu
 
 | Item | What it does |
 | --- | --- |
 | Open her tray | Only in the menu bar icon's menu |
 | Pin here | Keeps her where she is now |
+| Tuck away at the edge | Sends her to the side of the screen, half of her showing |
 | Fetch downloads | Catches downloads as they finish |
 | Screenshots | Folder, filing into month folders, 1× copies |
 | Open at login | Opens Jelly when you log in |

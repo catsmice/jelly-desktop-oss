@@ -5,6 +5,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 const { execFile } = require('child_process');
 const screenshots = require('./screenshots');
 const downloads = require('./downloads');
@@ -23,6 +24,9 @@ const ROOT = process.env.JELLY_APP ? path.resolve(process.env.JELLY_APP) : path.
 // itself for a picture, rather than one generic icon for the whole file type.
 // It hangs on directories, so those never reach it.
 const THUMBS = fs.mkdtempSync(path.join(os.tmpdir(), 'jelly-shelf-'));
+// HEIC and TIFF being edited, as PNG. Apart from THUMBS, which /thumbs/ serves
+// without a token.
+const EDITS = fs.mkdtempSync(path.join(os.tmpdir(), 'jelly-edit-'));
 /** macOS refuses a drag with no icon, and a folder has no preview to offer. */
 const BLANK_CARD = path.join(__dirname, 'carry-icon.png');
 let thumbCount = 0;
@@ -205,6 +209,14 @@ const CATCHER_PAGE = `<!doctype html><meta charset="utf-8">
 // What she says, in the language picked once her settings are read.
 let words = i18n.strings('en');
 // Her strings, handed to a page of hers as it is served.
+// Her own small pages (catcher, tray, edit) load nothing but themselves, their
+// thumbnails and the picture being edited. The game's page is left without one:
+// it is upstream's build.
+const OWN_PAGE = {
+  'Content-Type': 'text/html',
+  'Content-Security-Policy': "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+    + "img-src 'self' data: blob:; connect-src 'self'",
+};
 const withWords = html => html.replace('<meta charset="utf-8">',
   `<meta charset="utf-8"><script>window.jellyWords = ${JSON.stringify(words.table)};</script>`)
   .replace('<!doctype html>', `<!doctype html><html lang="${words.lang}">`);
@@ -253,19 +265,22 @@ const server = http.createServer((req, res) => {
   // a name of its own at 127.0.0.1 (DNS rebinding) and read the thumbnails of
   // whatever she holds; such a request carries that name as its Host.
   if (req.headers.host !== `127.0.0.1:${server.address().port}`) { res.writeHead(403); res.end(); return; }
-  const url = decodeURIComponent(req.url.split('?')[0]);
+  let url;
+  try { url = decodeURIComponent(req.url.split('?')[0]); } catch { url = null; }
+  if (!url || url.includes('\0')) { res.writeHead(400); res.end(); return; }
   if (url === '/catcher.html') {
-    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.writeHead(200, OWN_PAGE);
     res.end(CATCHER_PAGE);
     return;
   }
-  if (url === '/crop.html') {
-    res.writeHead(200, { 'Content-Type': 'text/html' });
-    res.end(withWords(fs.readFileSync(path.join(__dirname, 'crop.html'), 'utf8')));
+  if (url === '/edit.html') {
+    res.writeHead(200, OWN_PAGE);
+    res.end(withWords(fs.readFileSync(path.join(__dirname, 'edit.html'), 'utf8')));
     return;
   }
-  // A file the shell has chosen to show (the screenshot being cropped), by a
-  // one-off token: the page can ask for that file and no other.
+  // A file the shell has chosen to show (the picture being edited), by a
+  // random token that lasts until the edit ends: the page can ask for that
+  // file and no other.
   if (url.startsWith('/file/')) {
     const file = SERVABLE.get(url.slice('/file/'.length));
     if (!file) { res.writeHead(404); res.end(); return; }
@@ -277,7 +292,7 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (url === '/tray.html') {
-    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.writeHead(200, OWN_PAGE);
     res.end(withWords(fs.readFileSync(path.join(__dirname, 'tray.html'), 'utf8')));
     return;
   }
@@ -358,6 +373,9 @@ app.whenReady().then(() => new Promise(r => server.listen(0, '127.0.0.1', r)).th
   win.setAlwaysOnTop(true, 'screen-saver');
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   win.setIgnoreMouseEvents(true, { forward: true });
+  // Left out of screenshots and screen sharing, so a full-screen shot is of
+  // the desktop rather than of her.
+  win.setContentProtection(true);
   // Shown only once the page's own look is replaced; see after loadURL below.
   // Put the window on a display, and tell the page which slice of the desk that
   // window now shows. Desk pixels are the page's coordinates throughout, so the
@@ -482,7 +500,11 @@ app.whenReady().then(() => new Promise(r => server.listen(0, '127.0.0.1', r)).th
       if (small && held) { held.small = small; announce(); }
     });
   };
-  ipcMain.on('pet-swallow', (_event, files) => swallow(files));
+  ipcMain.on('pet-swallow', (_event, files) => {
+    if (!Array.isArray(files)) return;
+    const paths = files.filter(file => typeof file === 'string' && path.isAbsolute(file));
+    if (paths.length) swallow(paths);
+  });
 
   // Handing one back, from a card picked in the tray. macOS starts a file drag
   // from a real dragstart, so the drag begins in the tray. She gives it up at the moment
@@ -513,7 +535,7 @@ app.whenReady().then(() => new Promise(r => server.listen(0, '127.0.0.1', r)).th
   const CARD = { w: 104, h: 90, gapX: 12, gapY: 14, padX: 56, padTop: 52, padBottom: 52 };
   const trayItems = () => carried.map(({ path: where, name, label, kind, thumb, small }) =>
     ({ path: where, name, label, kind, thumb, trash: !!shots?.owns(where),
-       crop: !!shots?.owns(where) && SHRINKABLE.test(where),
+       edit: SHRINKABLE.test(where),
        out: settings.shrink !== false && small ? `${small.width}x${small.height}` : null }));
   // At most this many rows; past them the cards scroll inside the tray.
   const TRAY_ROWS = 4;
@@ -574,48 +596,97 @@ app.whenReady().then(() => new Promise(r => server.listen(0, '127.0.0.1', r)).th
     previewing = true;
     tray.previewFile(held.path, held.name);
   });
-  // Cropping one screenshot: a window with the picture large, a selection to
-  // drag out, and Enter to keep it. The crop is a new file beside the original
-  // (which is never changed), so the inbox catches it as a new card, and it gets
-  // its own 1x copy like any screenshot. sips keeps the original's resolution.
-  let cropWin = null;
-  ipcMain.on('pet-crop-open', async (_event, key) => {
+  // Editing one picture: a window with it large and four tools (crop, pixelate,
+  // box, arrow), and Enter to keep the result. The result is a new file beside
+  // the original, which is never changed. A crop on its own is cut by sips, which
+  // keeps the original's resolution and colour profile; anything drawn comes back
+  // from the page as a finished PNG at full resolution. In the screenshot folder
+  // the watcher catches it as a new card, with its own 1x copy like any
+  // screenshot; anywhere else (Downloads, a file she was fed) she is handed it
+  // directly.
+  let editWin = null, editing = null, editTemp = null, editCount = 0, editSize = null;
+  // The PNG a HEIC or TIFF was turned into is the whole unedited picture, so it
+  // goes as soon as the edit ends (and with EDITS at Quit, at the latest).
+  const endEdit = () => {
+    SERVABLE.clear();
+    editing = null; editSize = null;
+    if (editTemp) fs.rm(editTemp, { force: true }, () => {});
+    editTemp = null;
+  };
+  const EDIT_DRAWS = /\.(png|jpe?g)$/i;   // what the page can draw as it is
+  const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  ipcMain.on('pet-edit-open', async (event, key) => {
+    if (event.sender !== tray.webContents) return;
     const held = carried.find(one => one.path === key);
-    if (!held || !shots?.owns(held.path) || !SHRINKABLE.test(held.path)) return;
-    const size = nativeImage.createFromPath(held.path).getSize();
-    if (!size.width) return;
-    if (!cropWin) {
-      cropWin = new BrowserWindow({
+    if (!held || !SHRINKABLE.test(held.path)) return;
+    endEdit();
+    // HEIC and TIFF go to the page as a PNG made for the purpose.
+    let drawn = held.path;
+    if (!EDIT_DRAWS.test(held.path)) {
+      drawn = editTemp = path.join(EDITS, `${editCount++}.png`);
+      const made = await new Promise(done => execFile('sips', ['-s', 'format', 'png', held.path, '--out', drawn],
+        { timeout: 10000, killSignal: 'SIGKILL' }, error => done(!error)));
+      if (!made) { console.log('could not open ' + held.name + ' for editing'); endEdit(); return; }
+    }
+    // Measured from what the page will draw: nativeImage reads PNG and JPEG only.
+    const size = nativeImage.createFromPath(drawn).getSize();
+    if (!size.width) { console.log('could not read ' + held.name + ' for editing'); endEdit(); return; }
+    if (!editWin) {
+      editWin = new BrowserWindow({
         show: false, transparent: true, frame: false, hasShadow: false, resizable: false, skipTaskbar: true,
         webPreferences: { preload: path.join(__dirname, 'preload.js'), backgroundThrottling: false },
       });
-      cropWin.setAlwaysOnTop(true, 'screen-saver', 1);   // above her
-      cropWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-      cropWin.on('closed', () => { cropWin = null; });
-      await cropWin.loadURL(`http://127.0.0.1:${server.address().port}/crop.html`);
+      editWin.setAlwaysOnTop(true, 'screen-saver', 1);   // above her
+      editWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+      editWin.on('closed', () => { editWin = null; });
+      await editWin.loadURL(`http://127.0.0.1:${server.address().port}/edit.html`);
     }
     const display = (trayAnchor?.display) ?? shown ?? area.screens[0];
     const work = screen.getDisplayMatching(display).workArea;
     const w = Math.round(work.width * .8), h = Math.round(work.height * .8);
-    cropWin.setBounds({ x: work.x + Math.round((work.width - w) / 2), y: work.y + Math.round((work.height - h) / 2), width: w, height: h });
-    const token = Math.random().toString(36).slice(2);
-    SERVABLE.clear(); SERVABLE.set(token, held.path);
+    editWin.setBounds({ x: work.x + Math.round((work.width - w) / 2), y: work.y + Math.round((work.height - h) / 2), width: w, height: h });
+    const token = crypto.randomBytes(16).toString('hex');
+    SERVABLE.clear(); SERVABLE.set(token, drawn);
+    editing = held.path;
     previewing = true;   // the tray stays open meanwhile, as for Quick Look
-    cropWin.webContents.send('pet-crop', held.path, `/file/${token}`, size.width, size.height);
-    cropWin.show(); cropWin.focus();
+    editSize = size;
+    editWin.webContents.send('pet-edit', held.path, `/file/${token}`, size.width, size.height);
+    editWin.show(); editWin.focus();
   });
-  ipcMain.on('pet-crop-done', (_event, key, rect) => {
-    if (cropWin && !cropWin.isDestroyed()) cropWin.hide();
-    SERVABLE.clear();
-    if (!rect || !key) return;
-    const ext = path.extname(key), stem = path.basename(key, ext), folder = path.dirname(key);
-    let target = path.join(folder, `${stem} (cropped)${ext}`);
-    for (let n = 2; fs.existsSync(target); n++) target = path.join(folder, `${stem} (cropped ${n})${ext}`);
-    shots?.expect(target);   // a crop carries no screenshot mark of its own
-    execFile('sips', ['-c', String(rect.h), String(rect.w), '--cropOffset', String(rect.y), String(rect.x), key, '--out', target],
-      { timeout: 10000, killSignal: 'SIGKILL' }, error => console.log(error
-        ? 'could not crop ' + path.basename(key) + ': ' + error.message
-        : `cropped: ${path.basename(target)} (${rect.w}x${rect.h})`));
+  // The page answers with { rect } for a crop alone, or { png } when anything
+  // was drawn (the crop, if any, already applied). Only the picture that was
+  // opened can be saved.
+  ipcMain.on('pet-edit-done', (event, key, result) => {
+    if (!editWin || editWin.isDestroyed() || event.sender !== editWin.webContents) return;
+    editWin.hide();
+    const opened = editing, size = editSize;
+    endEdit();
+    if (!result || !key || key !== opened) return;
+    // A PNG no bigger than four bytes a pixel, and some room for its header,
+    // could make it.
+    if (result.png && !(result.png instanceof Uint8Array)) return;
+    if (result.png && result.png.length > size.width * size.height * 4 + (1 << 20)) return;
+    const png = result.png ? Buffer.from(result.png) : null;
+    if (png && !png.subarray(0, 8).equals(PNG_SIGNATURE)) return;
+    const rect = !png && result.rect;
+    if (!png && !(rect && [rect.x, rect.y, rect.w, rect.h].every(Number.isInteger) && rect.w > 0 && rect.h > 0)) return;
+    const ext = png ? '.png' : path.extname(key), stem = path.basename(key, path.extname(key)), folder = path.dirname(key);
+    let target = path.join(folder, `${stem} (edited)${ext}`);
+    // lstat, not exists: a dangling link reads as missing and would be written through.
+    const taken = file => { try { fs.lstatSync(file); return true; } catch { return false; } };
+    for (let n = 2; taken(target); n++) target = path.join(folder, `${stem} (edited ${n})${ext}`);
+    // In the screenshot folder the watcher will see it; an edited copy carries
+    // no screenshot mark of its own, so it is told to expect it.
+    const watched = !!shots && path.resolve(folder) === shots.folder;
+    if (watched) shots.expect(target);
+    const saved = error => {
+      if (error) { console.log('could not save an edited ' + path.basename(key) + ': ' + error.message); return; }
+      console.log(`edited: ${path.basename(target)}` + (rect ? ` (cropped to ${rect.w}x${rect.h})` : ''));
+      if (!watched) swallow([target]);
+    };
+    if (png) fs.writeFile(target, png, { flag: 'wx' }, saved);
+    else execFile('sips', ['-c', String(rect.h), String(rect.w), '--cropOffset', String(rect.y), String(rect.x), key, '--out', target],
+      { timeout: 10000, killSignal: 'SIGKILL' }, saved);
   });
 
   // Throwing one away. A screenshot or recording goes to the Trash, where Put Back
@@ -691,6 +762,16 @@ app.whenReady().then(() => new Promise(r => server.listen(0, '127.0.0.1', r)).th
     win.webContents.send('pet-pin', { on, at: null, quiet });
     console.log(on ? 'pinned' : 'unpinned');
   };
+  // Tucked away: she walks to the nearest side of her screen and peeks in from
+  // it, half of her past the edge, until untucked from the menu or dragged
+  // out. Not kept between runs: she starts in the open.
+  let tucked = false;
+  const tuckAway = on => {
+    tucked = on;
+    win.webContents.send('pet-tuck', { on });
+    console.log(on ? 'tucked away' : 'untucked');
+  };
+  ipcMain.on('pet-untucked', () => { tucked = false; console.log('untucked: dragged out'); });
   ipcMain.on('pet-pin-at', (_event, x, y) => {
     if (!settings.pin?.on) return;
     settings.pin.at = { x: Math.round(x), y: Math.round(y) };
@@ -766,7 +847,7 @@ app.whenReady().then(() => new Promise(r => server.listen(0, '127.0.0.1', r)).th
     startShots();
   };
   // Changing her language: the menu is built afresh each time it opens, and the
-  // tray and crop pages are served again. Her loading line changes next start.
+  // tray and edit pages are served again. Her loading line changes next start.
   const speak = lang => {
     if (lang) settings.language = lang; else delete settings.language;
     saveSettings();
@@ -774,7 +855,8 @@ app.whenReady().then(() => new Promise(r => server.listen(0, '127.0.0.1', r)).th
     console.log('language: ' + words.lang);
     closeTray('language');
     tray.reload();
-    if (cropWin && !cropWin.isDestroyed()) cropWin.destroy();
+    if (editWin && !editWin.isDestroyed()) editWin.destroy();
+    endEdit();
   };
   // Her menu: right-click her, or click her icon in the menu bar. Both show the
   // same items, so either is enough to find everything.
@@ -783,6 +865,7 @@ app.whenReady().then(() => new Promise(r => server.listen(0, '127.0.0.1', r)).th
     return [
       ...(fromMenuBar ? [{ label: words.t('openTray'), enabled: carried.length > 0, click: () => openTray() }, { type: 'separator' }] : []),
       { label: words.t('pinHere'), type: 'checkbox', checked: pinnedNow, click: () => pinTo(!pinnedNow) },
+      { label: words.t('tuckAway'), type: 'checkbox', checked: tucked, click: () => tuckAway(!tucked) },
       { label: words.t('fetchDownloads'), type: 'checkbox', checked: !!fetched, click: () => {
         if (fetched) { fetched.stop(); fetched = null; settings.downloads = false; console.log('Downloads: stopped.'); }
         else { fetched = downloads.watch(swallow); settings.downloads = true; }
@@ -967,8 +1050,16 @@ app.whenReady().then(() => new Promise(r => server.listen(0, '127.0.0.1', r)).th
 }));
 
 app.on('before-quit', () => { quitting = true; });
+// Her windows only ever show her own pages: nothing navigates them elsewhere
+// (a dropped file, a link) and nothing opens a window of its own, since either
+// would carry the preload, and with it her whole bridge to the shell, along.
+app.on('web-contents-created', (_event, contents) => {
+  contents.on('will-navigate', event => event.preventDefault());
+  contents.setWindowOpenHandler(() => ({ action: 'deny' }));
+});
 app.on('window-all-closed', () => app.quit());
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   fs.rmSync(THUMBS, { recursive: true, force: true });
+  fs.rmSync(EDITS, { recursive: true, force: true });
 });

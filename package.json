@@ -5,6 +5,9 @@
   "description": "Jelly, a soft-body desktop pet for macOS that catches your screenshots and files",
   "author": "Chi Min Lee (catsmice)",
   "license": "GPL-3.0-only",
+  "repository": { "type": "git", "url": "https://github.com/catsmice/jelly-desktop-oss.git" },
+  "homepage": "https://github.com/catsmice/jelly-desktop-oss#readme",
+  "bugs": { "url": "https://github.com/catsmice/jelly-desktop-oss/issues" },
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -29,7 +32,7 @@
       "preload.js",
       "pet-demo.js",
       "tray.html",
-      "crop.html",
+      "edit.html",
       "screenshots.js",
       "downloads.js",
       "i18n.js",
