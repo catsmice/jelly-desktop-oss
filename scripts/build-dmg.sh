@@ -89,6 +89,13 @@ rm -f "$DMG"
 hdiutil create -volname "Jelly $VERSION" -srcfolder "$STAGING" -ov -format UDZO "$DMG" >/dev/null
 rm -rf "$STAGING"
 
+step "Signing the disk image"
+# The same Developer ID as the app, by its hash, so a second identity with a
+# similar name in the keychain cannot be picked by mistake.
+IDENTITY="$(security find-identity -v -p codesigning | grep -m1 "Developer ID Application" | awk '{print $2}')"
+codesign --sign "$IDENTITY" --timestamp "$DMG"
+codesign --verify --verbose=2 "$DMG"
+
 step "Notarizing and stapling the disk image"
 xcrun notarytool submit "$DMG" --keychain-profile "$NOTARY_PROFILE" --wait
 xcrun stapler staple "$DMG"
@@ -102,6 +109,12 @@ hdiutil detach "$MOUNT" >/dev/null 2>&1 || true
 echo "$VERDICT"
 grep -q "accepted" <<<"$VERDICT" && grep -q "Notarized Developer ID" <<<"$VERDICT" \
   || { echo "✗ Gatekeeper did not accept it as notarized"; exit 1; }
+
+step "Gatekeeper check of the disk image itself"
+VERDICT="$(spctl -a -vvv -t open --context context:primary-signature "$DMG" 2>&1 || true)"
+echo "$VERDICT"
+grep -q "accepted" <<<"$VERDICT" \
+  || { echo "✗ Gatekeeper did not accept the disk image"; exit 1; }
 
 (cd "$OUT" && shasum -a 256 "$(basename "$DMG")" | tee "$(basename "$DMG").sha256")
 printf '\n\033[1;32m✓ Done: %s\033[0m\n' "$DMG"

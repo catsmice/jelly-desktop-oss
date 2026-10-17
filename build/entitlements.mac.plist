@@ -3,10 +3,9 @@
 <plist version="1.0">
 <dict>
   <!-- Electron's JavaScript engine compiles code as it runs, which the hardened
-       runtime forbids unless these are granted. Applied to the helpers too. -->
+       runtime forbids unless this is granted. Applied to the helpers too.
+       allow-unsigned-executable-memory was dropped in 0.2.0: she runs without it. -->
   <key>com.apple.security.cs.allow-jit</key>
-  <true/>
-  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
   <true/>
 </dict>
 </plist>
