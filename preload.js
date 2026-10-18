@@ -42,9 +42,11 @@ contextBridge.exposeInMainWorld('pet', {
   throwAway: key => ipcRenderer.send('pet-throw', key),
   // Editing a picture (crop, pixelate, box, arrow): the tray asks, the edit
   // window shows it and answers with a crop, or with the finished PNG's bytes.
+  // The looks last chosen for each tool come with it, and go back when changed.
   editOpen: key => ipcRenderer.send('pet-edit-open', key),
   editDone: (key, result) => ipcRenderer.send('pet-edit-done', key, result),
-  onEdit: handle => ipcRenderer.on('pet-edit', (_event, key, src, width, height) => handle(key, src, width, height)),
+  editLooks: looks => ipcRenderer.send('pet-edit-looks', looks),
+  onEdit: handle => ipcRenderer.on('pet-edit', (_event, key, src, width, height, looks) => handle(key, src, width, height, looks)),
   onTray: handle => ipcRenderer.on('pet-tray', (_event, items, opening, filing) => handle(items, opening, filing)),
   onTrayClose: handle => ipcRenderer.on('pet-tray-closing', () => handle()),
   // Her size: scroll or pinch over her, and the size she was left at.

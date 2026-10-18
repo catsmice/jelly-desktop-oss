@@ -64,7 +64,7 @@ What you can do with her:
 | in the tray: double-click a card, or Space over it | Quick Look, the system's preview |
 | in the tray: the trash button on a card, or Delete | screenshots and recordings to the Trash; other files are only let go of |
 | two-finger scroll or pinch over her | she gets bigger or smaller, and stays that size |
-| in the tray: the edit button on a picture, or C | crop, pixelate, box or arrow on a copy; Enter saves `… (edited)` beside it as a new card (a PNG when anything was drawn) |
+| in the tray: the edit button on a picture, or C | crop, pixelate, box or arrow on a copy, each tool in a choice of looks and colours; Enter saves `… (edited)` beside it as a new card (a PNG when anything was drawn) |
 | right-click her | her menu: **Pin here** keeps her on her spot (see "Pinned to a spot"); **Fetch downloads** switches the downloads catcher; **Screenshots** picks her folder and filing (see "Catching screenshots"); **Tuck away at the edge** sends her to the side (see "Tucked away at the edge"); **Language** (see "Her language") |
 | download something | she swallows it when it finishes (see "Catching downloads") |
 | take a screenshot | if screenshots are saved to her inbox, she swallows it (see "Catching screenshots") |
@@ -458,10 +458,29 @@ never shrunk.
 Editing works on any picture she holds (png, jpg, heic, tiff), when wanted: the edit
 button on its card (or C over it) opens `edit.html` in a window of her jelly, 80% of
 the screen, above her. It has four tools: **crop** (drag out an area, adjust it by its
-corners), **pixelate** (coarse blocks over anything private), **box** and **arrow**
-(red, sized to the picture so they still read on the 1x copy). ⌘Z takes back the last
-mark, Enter saves, Esc cancels. The result is a new file beside the original, which is
-never changed:
+corners), **pixelate** (over anything private), **box** and **arrow**, all sized to the
+picture so they still read on the 1x copy. ⌘Z takes back the last mark, Enter saves,
+Esc cancels. The result is a new file beside the original, which is never changed.
+
+Each drawing tool has looks, picked from a strip that appears beside the tools:
+
+| Tool | Looks | Colour |
+| --- | --- | --- |
+| pixelate | square blocks; frosted glass (the blocks smoothed in a rounded grey pane with a thin edge, so it is seen to hide something); jelly tiles (each block a rounded square) | none |
+| box | plain; rounded (white rim and soft shadow, readable on dark pictures); spotlight (everything else dimmed, on a layer of its own so overlapping spotlights both stay bright); highlighter (multiplied, so the words stay sharp) | plain and rounded share one, the highlighter has its own (yellow, and never white, which multiplying would not show) |
+| arrow | plain; tapered (thin at the tail, white rim and shadow); curved (the same, bent) | one for all three |
+
+Every pixelate look starts from the same blocks, each the true average of every pixel
+under it (worked out from the pixels: a scaled `drawImage` only samples a few, and a
+test with a picture of noise found blocks that kept one original pixel exactly), so what
+was under them is gone before anything is made softer. True averages keep the shape of
+the words when a block is the size of a letter, so blocks are 1.5 times the size the
+picture would give (`BLOCK`, the longer side over 140), and frosted glass, whose
+smoothing shows shapes more, uses twice that; the rounded looks reach a few pixels past what was
+dragged out, so a rounded corner never leaves an uncovered sliver. The look and colour
+last chosen for each tool go to the shell (`pet-edit-looks`, only from the edit window,
+only names it knows) and are kept as `editLooks` in `jelly.json`, since the page's own
+storage would not last: its address has a new port every run.
 
 - A crop on its own goes back to the shell as a rectangle, and `sips` cuts
   `… (edited).<ext>` from the original at full resolution, keeping its colour profile.
@@ -742,8 +761,9 @@ pixels cost about 930 MB there, 2M about 560 MB, 1M about 460 MB, where her outl
 starts to step). The other lever was the original game's home world (the portal, the
 bed, the dressing table), built and hidden but switched on by the shader warm-up and
 uploaded: 59 meshes and 215k vertices, three times her own. The shell is not the
-cost. The same build in WKWebView, the engine Tauri would use, came to about 1.2 GB
-for her page alone and took 31 s to start instead of 4.
+cost. Measured side by side on 2026-10-17 (one screen, six minutes each), the same
+page in WKWebView, the engine Tauri would use, took 887 MB against Electron's 824 MB,
+about the same CPU and GPU, and 5.9 s to start against 3.4 s.
 
 ## Making a release
 

@@ -72,9 +72,13 @@ A screenshot from a Retina screen has twice the width and height of what you saw
 Any picture card can be edited: a screenshot, a downloaded image, or one you gave her. Hover the card and press C, or click its edit button, and the edit window opens with four tools:
 
 - Crop: drag out the part to keep, and drag the corners to adjust it.
-- Pixelate: drag over a password, a customer's name or an account number, and it turns into coarse blocks.
-- Box: a red box around what matters.
-- Arrow: drag from where it starts to what it points at.
+- Pixelate: drag over a password, a customer's name or an account number, and the words underneath are broken up. It can be square blocks, frosted glass or jelly tiles.
+- Box: mark what matters, with a plain box, a rounded box, a spotlight (everything outside it is dimmed) or a highlighter.
+- Arrow: drag from where it starts to what it points at, as a plain, tapered or curved arrow.
+
+Once a tool is chosen, its looks appear beside it, and boxes and arrows have colours too. She remembers what you picked last.
+
+<p align="center"><img src="docs/images/jelly-edit-en.png" width="720" alt="The edit window: the email and account number under frosted glass, the amount highlighted, and the Send transfer button in a red rounded box with an arrow pointing at it"></p>
 
 Press ⌘Z to undo the last step and Enter to save. The edited picture is saved next to the original with "(edited)" added to its name and comes back to her as a new card. The original is left as it is, so anything you pixelated can still be read there. Share the new one.
 

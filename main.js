@@ -650,8 +650,24 @@ app.whenReady().then(() => new Promise(r => server.listen(0, '127.0.0.1', r)).th
     editing = held.path;
     previewing = true;   // the tray stays open meanwhile, as for Quick Look
     editSize = size;
-    editWin.webContents.send('pet-edit', held.path, `/file/${token}`, size.width, size.height);
+    editWin.webContents.send('pet-edit', held.path, `/file/${token}`, size.width, size.height, settings.editLooks ?? null);
     editWin.show(); editWin.focus();
+  });
+  // The look and colour last chosen for each tool, kept between runs. Only
+  // names the page knows are kept.
+  const EDIT_LOOKS = { pixelate: ['blocks', 'frosted', 'tiles'], box: ['square', 'rounded', 'spotlight', 'highlight'], arrow: ['plain', 'straight', 'curved'] };
+  const EDIT_PAINTS = ['box', 'highlight', 'arrow'];
+  const EDIT_COLOURS = ['red', 'pink', 'yellow', 'blue', 'green', 'white'];
+  ipcMain.on('pet-edit-looks', (event, looks) => {
+    if (!editWin || editWin.isDestroyed() || event.sender !== editWin.webContents || !looks) return;
+    const kept = { colour: {} };
+    for (const [tool, names] of Object.entries(EDIT_LOOKS)) if (names.includes(looks[tool])) kept[tool] = looks[tool];
+    for (const paint of EDIT_PAINTS) {
+      const colour = looks.colour?.[paint];
+      if (EDIT_COLOURS.includes(colour) && !(paint === 'highlight' && colour === 'white')) kept.colour[paint] = colour;
+    }
+    settings.editLooks = kept;
+    saveSettings();
   });
   // The page answers with { rect } for a crop alone, or { png } when anything
   // was drawn (the crop, if any, already applied). Only the picture that was

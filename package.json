@@ -1,7 +1,7 @@
 {
   "name": "jelly-desktop",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Jelly, a soft-body desktop pet for macOS that catches your screenshots and files",
   "author": "Chi Min Lee (catsmice)",
   "license": "GPL-3.0-only",

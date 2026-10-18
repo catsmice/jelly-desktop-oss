@@ -5,3 +5,4 @@ wkapp
 dist/
 dist-release/
 Jelly-Baby/
+bench/out/

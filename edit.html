@@ -4,8 +4,9 @@
 <style>
   /* Editing one picture: the picture large, in a frame of her jelly, with four
      tools. Crop drags out a selection to keep; pixelate, box and arrow draw on
-     it. The result is a new file beside the original; the original is never
-     changed. */
+     it, each in a look picked from the strip beside the tools (and a colour,
+     for boxes and arrows). The result is a new file beside the original; the
+     original is never changed. */
   :root{
     --flavour:214 118 146;
     --flavour-deep:150 52 84;
@@ -43,6 +44,17 @@
   .tool{display:flex;align-items:center;gap:6px;padding:7px 12px;background:transparent;color:#fff}
   .tool svg{width:14px;height:14px}
   .tool[aria-pressed="true"]{background:#fff;color:rgb(var(--flavour-deep));box-shadow:0 1px 3px rgb(0 0 0 / .25)}
+  /* The chosen tool's looks, and its colours, beside the tools. */
+  .looks{display:flex;align-items:center;gap:2px;padding:3px;border-radius:999px;background:rgb(var(--flavour-deep) / .45);
+    box-shadow:inset 0 1px 2px rgb(0 0 0 / .2)}
+  .looks[hidden]{display:none}
+  .look{width:32px;height:25px;padding:0;display:grid;place-items:center;background:transparent;color:#fff}
+  .look svg{width:16px;height:16px}
+  .look[aria-pressed="true"]{background:#fff;color:rgb(var(--flavour-deep));box-shadow:0 1px 3px rgb(0 0 0 / .25)}
+  .looks .gap{width:1px;height:16px;margin:0 5px;background:rgb(255 255 255 / .35)}
+  .dot{width:17px;height:17px;padding:0;margin:0 3px;border-radius:50%;background:var(--c);
+    box-shadow:inset 0 0 0 1.5px rgb(255 255 255 / .85),0 1px 2px rgb(0 0 0 / .25)}
+  .dot[aria-pressed="true"]{box-shadow:0 0 0 2px rgb(var(--flavour-deep)),0 0 0 4px #fff}
   .undo{width:31px;height:31px;padding:0;display:grid;place-items:center;
     background:rgb(var(--flavour-deep) / .85);color:#fff;box-shadow:inset 0 1px 0 rgb(255 255 255 / .35)}
   .undo svg{width:14px;height:14px}
@@ -71,6 +83,7 @@
       <button class="tool" type="button" data-tool="box"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="1.5" y="2.5" width="11" height="9" rx="1"/></svg><span></span></button>
       <button class="tool" type="button" data-tool="arrow"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12L11.5 2.5M5.5 2.5h6v6"/></svg><span></span></button>
     </div>
+    <div class="looks" id="looks" hidden></div>
     <button class="undo" id="undo" type="button" disabled><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 2L1.5 5l3 3"/><path d="M1.5 5h7a4 4 0 010 8H6"/></svg></button>
     <span class="hint" id="hint"></span>
     <button class="cancel" id="cancel" type="button"></button>
@@ -107,7 +120,36 @@
   // Sizes follow the picture, so a mark looks the same on a Retina screenshot
   // and on its 1x copy, where everything is halved.
   let LINE = 4, BLOCK = 12;
-  const RED = '#ff3b30';
+
+  // Each tool's looks, in the order the strip shows them, and the colours a
+  // box or an arrow can be. The plain and rounded boxes share a colour, as do
+  // the three arrows; the highlighter keeps its own, so it can stay yellow while
+  // boxes are red, and is never white, which a highlighter does not show. What
+  // was last chosen is kept in her settings by the shell (this page's address
+  // changes every run).
+  const LOOKS = { pixelate: ['blocks', 'frosted', 'tiles'], box: ['square', 'rounded', 'spotlight', 'highlight'], arrow: ['plain', 'straight', 'curved'] };
+  const COLOURS = { red: '#ff3b30', pink: '#e0497f', yellow: '#ffcc00', blue: '#0a84ff', green: '#30d158', white: '#ffffff' };
+  const PAINT = { square: 'box', rounded: 'box', highlight: 'highlight', plain: 'arrow', straight: 'arrow', curved: 'arrow' };   // whose colour a look uses
+  let looks = { pixelate: 'frosted', box: 'rounded', arrow: 'straight', colour: { box: 'red', highlight: 'yellow', arrow: 'red' } };
+  const choices = paint => Object.keys(COLOURS).filter(name => paint !== 'highlight' || name !== 'white');
+  const adopt = saved => {
+    for (const kind of Object.keys(LOOKS)) if (LOOKS[kind].includes(saved?.[kind])) looks[kind] = saved[kind];
+    for (const paint of Object.keys(looks.colour)) if (choices(paint).includes(saved?.colour?.[paint])) looks.colour[paint] = saved.colour[paint];
+  };
+  const LOOK_WORDS = { blocks: 'lookBlocks', frosted: 'lookFrosted', tiles: 'lookTiles', square: 'lookSquare', rounded: 'lookRounded',
+    spotlight: 'lookSpotlight', highlight: 'lookHighlight', plain: 'lookPlain', straight: 'lookStraight', curved: 'lookCurved' };
+  const ICONS = {
+    blocks: '<path fill="currentColor" d="M1 1h4v4H1zM9 1h4v4H9zM5 5h4v4H5zM1 9h4v4H1zM9 9h4v4H9z"/>',
+    square: '<rect x="1.5" y="2.5" width="11" height="9" fill="none" stroke="currentColor" stroke-width="1.6"/>',
+    plain: '<path d="M2 12L9.4 4.6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M12.5 1.5L6.7 3.3l4 4z" fill="currentColor"/>',
+    frosted: '<rect x="1.5" y="1.5" width="11" height="11" rx="3" fill="currentColor" fill-opacity=".35"/><circle cx="5.2" cy="6" r="2.5" fill="currentColor" fill-opacity=".75"/><circle cx="9.4" cy="8.8" r="2.1" fill="currentColor" fill-opacity=".6"/>',
+    tiles: [1, 5.3, 9.6].flatMap(y => [1, 5.3, 9.6].map(x => `<rect x="${x}" y="${y}" width="3.4" height="3.4" rx="1" fill="currentColor"/>`)).join(''),
+    rounded: '<rect x="1.5" y="2.5" width="11" height="9" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/>',
+    spotlight: '<path fill="currentColor" fill-opacity=".55" fill-rule="evenodd" d="M0 1.5h14v11H0zM4 4.5h6v5H4z"/><rect x="4" y="4.5" width="6" height="5" rx="1" fill="none" stroke="currentColor" stroke-width="1"/>',
+    highlight: '<rect x="1" y="4" width="12" height="6" rx="2" fill="currentColor" fill-opacity=".55"/><path d="M3.5 7h7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>',
+    straight: '<path fill="currentColor" stroke="currentColor" stroke-width=".6" stroke-linejoin="round" d="M1.72 11.72L8.22 4.22 7.16 3.16 12.5 1.5 10.84 6.84 9.78 5.78 2.28 12.28z"/>',
+    curved: '<path d="M2 12.5C3 6.5 6.5 3.6 11.6 3.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M8.6 1l3 2.2-2.4 2.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+  };
 
   const box = () => pic.getBoundingClientRect();
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -131,44 +173,197 @@
     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
     ctx.drawImage(picture, 0, 0, natural.w * scale, natural.h * scale);
     ctx.scale(scale, scale);
+    // A spotlight dims everything else, once for all of them, before the rest
+    // is drawn on top.
+    const lit = all.filter(mark => mark.kind === 'box' && mark.look === 'spotlight');
+    if (lit.length) spotlight(ctx, scale, lit);
     for (const mark of all) {
-      const left = Math.min(mark.x1, mark.x2), top = Math.min(mark.y1, mark.y2);
-      const w = Math.abs(mark.x2 - mark.x1), h = Math.abs(mark.y2 - mark.y1);
-      if (mark.kind === 'pixelate') pixelate(ctx, scale, left, top, w, h);
+      if (mark.kind === 'pixelate') pixelate(ctx, scale, mark);
+      else if (mark.kind === 'box' && mark.look === 'highlight') highlight(ctx, mark);
+      else if (mark.kind === 'box' && mark.look === 'rounded') frame(ctx, scale, mark);
       else if (mark.kind === 'box') {
-        ctx.strokeStyle = RED; ctx.lineWidth = LINE; ctx.lineJoin = 'round';
-        ctx.strokeRect(left, top, w, h);
-      } else if (mark.kind === 'arrow') arrow(ctx, mark);
+        const r = area(mark);
+        ctx.strokeStyle = mark.colour; ctx.lineWidth = LINE; ctx.lineJoin = 'round';
+        ctx.strokeRect(r.x, r.y, r.w, r.h);
+      }
+      else if (mark.kind === 'arrow') arrow(ctx, scale, mark);
     }
     ctx.restore();
   }
-  // Coarse blocks, on a grid of the picture's own pixels. Each block is the
-  // average of what was under it, so nothing beneath can be read back.
-  function pixelate(ctx, scale, left, top, w, h) {
-    const x0 = Math.floor(left / BLOCK) * BLOCK, y0 = Math.floor(top / BLOCK) * BLOCK;
-    const x1 = Math.min(Math.ceil((left + w) / BLOCK) * BLOCK, natural.w), y1 = Math.min(Math.ceil((top + h) / BLOCK) * BLOCK, natural.h);
-    const across = Math.max(1, Math.ceil((x1 - x0) / BLOCK)), down = Math.max(1, Math.ceil((y1 - y0) / BLOCK));
-    const small = document.createElement('canvas');
-    small.width = across; small.height = down;
-    const sc = small.getContext('2d');
-    sc.imageSmoothingQuality = 'high';
-    sc.drawImage(ctx.canvas, x0 * scale, y0 * scale, (x1 - x0) * scale, (y1 - y0) * scale, 0, 0, across, down);
+  const area = m => ({ x: Math.min(m.x1, m.x2), y: Math.min(m.y1, m.y2), w: Math.abs(m.x2 - m.x1), h: Math.abs(m.y2 - m.y1) });
+  // A white rim and a soft shadow keep a mark readable on light and dark
+  // pictures alike. Shadows are not scaled with the drawing, hence `scale`.
+  const shadow = (ctx, scale) => {
+    ctx.shadowColor = 'rgb(0 0 0 / .35)'; ctx.shadowBlur = LINE * 3 * scale; ctx.shadowOffsetY = LINE * .6 * scale;
+  };
+  function frame(ctx, scale, mark) {
+    const r = area(mark), round = LINE * 3;
     ctx.save();
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(small, 0, 0, across, down, x0, y0, across * BLOCK, down * BLOCK);
+    shadow(ctx, scale);
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = LINE * 2.2;
+    ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, round); ctx.stroke();
+    ctx.restore();
+    ctx.strokeStyle = mark.colour; ctx.lineWidth = LINE * 1.2;
+    ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, round); ctx.stroke();
+  }
+  // Dimmed on a layer of its own with the holes cut out, so two spotlights that
+  // overlap still both stay bright.
+  function spotlight(ctx, scale, marks) {
+    const layer = new OffscreenCanvas(ctx.canvas.width, ctx.canvas.height), lc = layer.getContext('2d');
+    lc.fillStyle = 'rgb(0 0 0 / .45)'; lc.fillRect(0, 0, layer.width, layer.height);
+    lc.scale(scale, scale);
+    lc.globalCompositeOperation = 'destination-out';
+    for (const mark of marks) { const r = area(mark); lc.beginPath(); lc.roundRect(r.x, r.y, r.w, r.h, LINE * 3); lc.fill(); }
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(layer, 0, 0);
+    ctx.restore();
+    ctx.strokeStyle = 'rgb(255 255 255 / .9)'; ctx.lineWidth = LINE * .6;
+    for (const mark of marks) { const r = area(mark); ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, LINE * 3); ctx.stroke(); }
+  }
+  function highlight(ctx, mark) {
+    const r = area(mark);
+    ctx.save();
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.fillStyle = mark.colour + '8c';
+    ctx.beginPath(); ctx.roundRect(r.x - LINE, r.y - LINE, r.w + LINE * 2, r.h + LINE * 2, LINE * 2); ctx.fill();
     ctx.restore();
   }
-  function arrow(ctx, { x1, y1, x2, y2 }) {
-    const angle = Math.atan2(y2 - y1, x2 - x1), length = Math.hypot(x2 - x1, y2 - y1);
-    const head = Math.min(LINE * 4.5, length * .6), wide = head * .6;
-    const bx = x2 - Math.cos(angle) * head * .8, by = y2 - Math.sin(angle) * head * .8;
-    ctx.strokeStyle = ctx.fillStyle = RED; ctx.lineWidth = LINE; ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(bx, by); ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(x2, y2);
-    ctx.lineTo(x2 - Math.cos(angle) * head + Math.sin(angle) * wide, y2 - Math.sin(angle) * head - Math.cos(angle) * wide);
-    ctx.lineTo(x2 - Math.cos(angle) * head - Math.sin(angle) * wide, y2 - Math.sin(angle) * head + Math.cos(angle) * wide);
-    ctx.closePath(); ctx.fill();
+  // Coarse blocks, on a grid of the picture's own pixels. Each block is the
+  // average of every pixel under it, worked out here (a scaled drawImage only
+  // samples a few, so a block could keep one pixel exactly as it was); all
+  // three looks start from these, so softening comes after the words are gone.
+  // The rounded looks reach a little past what was dragged out, and their
+  // corners are cut from that larger pane even where it runs off the picture,
+  // so a rounded corner never leaves an edge or corner of the area uncovered.
+  function pixelate(ctx, scale, mark) {
+    // True averages keep the shape of the words when a block is the size of a
+    // letter, so blocks are half as big again; frosted glass, whose smoothing
+    // shows shapes more, uses them twice as big.
+    const size = mark.look === 'frosted' ? BLOCK * 2 : Math.round(BLOCK * 1.5);
+    const r = area(mark), pad = mark.look === 'blocks' ? 0 : LINE;
+    const pane = { x: r.x - pad, y: r.y - pad, w: r.w + pad * 2, h: r.h + pad * 2 };
+    const x0 = Math.floor(Math.max(0, pane.x) / size) * size, y0 = Math.floor(Math.max(0, pane.y) / size) * size;
+    const x1 = Math.min(Math.ceil((pane.x + pane.w) / size) * size, natural.w), y1 = Math.min(Math.ceil((pane.y + pane.h) / size) * size, natural.h);
+    const across = Math.max(1, Math.ceil((x1 - x0) / size)), down = Math.max(1, Math.ceil((y1 - y0) / size));
+    // The canvas's own pixels under the grid, in its own colour space.
+    const space = ctx.getContextAttributes?.().colorSpace ?? 'srgb';
+    const sx = Math.floor(x0 * scale), sy = Math.floor(y0 * scale);
+    const sw = Math.max(1, Math.min(ctx.canvas.width, Math.ceil(x1 * scale)) - sx), sh = Math.max(1, Math.min(ctx.canvas.height, Math.ceil(y1 * scale)) - sy);
+    const under = ctx.getImageData(sx, sy, sw, sh, { colorSpace: space }).data;
+    const mean = new Uint8ClampedArray(across * down * 4);
+    // Block i's run of canvas pixels along one side: [first, past the last).
+    const span = (i, from, offset, extent) => {
+      const lo = Math.min(extent - 1, Math.floor((from + i * size) * scale) - offset);
+      return [lo, Math.max(lo + 1, Math.min(extent, Math.floor((from + (i + 1) * size) * scale) - offset))];
+    };
+    for (let j = 0; j < down; j++) {
+      const [ya, yb] = span(j, y0, sy, sh);
+      for (let i = 0; i < across; i++) {
+        const [xa, xb] = span(i, x0, sx, sw);
+        let red = 0, green = 0, blue = 0;
+        for (let y = ya; y < yb; y++) for (let x = xa; x < xb; x++) {
+          const k = (y * sw + x) * 4; red += under[k]; green += under[k + 1]; blue += under[k + 2];
+        }
+        const n = (yb - ya) * (xb - xa), k = (j * across + i) * 4;
+        mean[k] = red / n; mean[k + 1] = green / n; mean[k + 2] = blue / n; mean[k + 3] = 255;
+      }
+    }
+    const small = document.createElement('canvas');
+    small.width = across; small.height = down;
+    small.getContext('2d', { colorSpace: space }).putImageData(new ImageData(mean, across, down, { colorSpace: space }), 0, 0);
+    if (mark.look === 'blocks') {
+      // Square blocks as they are, edge to edge.
+      ctx.save();
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(small, 0, 0, across, down, x0, y0, across * size, down * size);
+      ctx.restore();
+      return;
+    }
+    const round = LINE * 2.5;
+    ctx.save();
+    ctx.beginPath(); ctx.roundRect(pane.x, pane.y, pane.w, pane.h, round); ctx.clip();
+    if (mark.look === 'tiles') {
+      // Jelly tiles: each block a small rounded square, on the blocks' average.
+      const shade = (red, green, blue) => `color(${space} ${red / 255} ${green / 255} ${blue / 255})`;
+      let red = 0, green = 0, blue = 0;
+      for (let k = 0; k < mean.length; k += 4) { red += mean[k]; green += mean[k + 1]; blue += mean[k + 2]; }
+      const n = mean.length / 4, gap = Math.max(1, size * .14);
+      ctx.fillStyle = shade(red / n, green / n, blue / n);
+      ctx.fillRect(x0, y0, across * size, down * size);
+      for (let j = 0; j < down; j++) for (let i = 0; i < across; i++) {
+        const k = (j * across + i) * 4;
+        ctx.fillStyle = shade(mean[k], mean[k + 1], mean[k + 2]);
+        ctx.beginPath(); ctx.roundRect(x0 + i * size + gap / 2, y0 + j * size + gap / 2, size - gap, size - gap, size * .28); ctx.fill();
+      }
+      ctx.restore();
+      return;
+    }
+    // Frosted glass: the blocks as they are, then the same blocks smoothed over
+    // them, under a faint white veil and a rim.
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(small, 0, 0, across, down, x0, y0, across * size, down * size);
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(small, 0, 0, across, down, x0, y0, across * size, down * size);
+    ctx.fillStyle = 'rgb(120 120 135 / .16)'; ctx.fillRect(pane.x, pane.y, pane.w, pane.h);
+    ctx.restore();
+    // A thin dark edge outside a white one, so the pane shows on light and dark
+    // pictures alike: hidden, and seen to be hidden.
+    ctx.strokeStyle = 'rgb(0 0 0 / .18)'; ctx.lineWidth = Math.max(1, LINE * .5);
+    ctx.beginPath(); ctx.roundRect(pane.x, pane.y, pane.w, pane.h, round); ctx.stroke();
+    ctx.strokeStyle = 'rgb(255 255 255 / .7)'; ctx.lineWidth = Math.max(1, LINE * .25);
+    ctx.beginPath(); ctx.roundRect(pane.x, pane.y, pane.w, pane.h, round); ctx.stroke();
+  }
+  // One filled outline, thin at the tail and wide before the head, with the
+  // head; optionally bent into a gentle curve.
+  function arrowShape({ x1, y1, x2, y2 }, curved) {
+    const length = Math.hypot(x2 - x1, y2 - y1);
+    const head = Math.min(LINE * 6, length * .45), wide = head * .62;
+    const angle = Math.atan2(y2 - y1, x2 - x1), nx = -Math.sin(angle), ny = Math.cos(angle);
+    const bend = curved ? length * .18 : 0;
+    const cx = (x1 + x2) / 2 + nx * bend, cy = (y1 + y2) / 2 + ny * bend;
+    const at = t => ({ x: (1 - t) ** 2 * x1 + 2 * (1 - t) * t * cx + t * t * x2, y: (1 - t) ** 2 * y1 + 2 * (1 - t) * t * cy + t * t * y2 });
+    const stop = 1 - head * .85 / length, steps = 24, left = [], right = [];
+    for (let i = 0; i <= steps; i++) {
+      const t = stop * i / steps, p = at(t), q = at(Math.min(1, t + .01));
+      const a = Math.atan2(q.y - p.y, q.x - p.x), half = Math.min(LINE * (.35 + 1.05 * i / steps), wide * .55);
+      left.push([p.x - Math.sin(a) * half, p.y + Math.cos(a) * half]);
+      right.push([p.x + Math.sin(a) * half, p.y - Math.cos(a) * half]);
+    }
+    const base = at(stop), before = at(stop - .01), ha = Math.atan2(y2 - before.y, x2 - before.x);
+    const path = new Path2D();
+    path.moveTo(...left[0]);
+    for (const p of left) path.lineTo(...p);
+    path.lineTo(base.x - Math.sin(ha) * wide, base.y + Math.cos(ha) * wide);
+    path.lineTo(x2, y2);
+    path.lineTo(base.x + Math.sin(ha) * wide, base.y - Math.cos(ha) * wide);
+    for (const p of right.reverse()) path.lineTo(...p);
+    path.closePath();
+    return path;
+  }
+  function arrow(ctx, scale, mark) {
+    if (mark.look === 'plain') {
+      // An even line and a triangle, nothing more.
+      const { x1, y1, x2, y2 } = mark;
+      const angle = Math.atan2(y2 - y1, x2 - x1), length = Math.hypot(x2 - x1, y2 - y1);
+      const head = Math.min(LINE * 4.5, length * .6), wide = head * .6;
+      const bx = x2 - Math.cos(angle) * head * .8, by = y2 - Math.sin(angle) * head * .8;
+      ctx.strokeStyle = ctx.fillStyle = mark.colour; ctx.lineWidth = LINE; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(bx, by); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x2, y2);
+      ctx.lineTo(x2 - Math.cos(angle) * head + Math.sin(angle) * wide, y2 - Math.sin(angle) * head - Math.cos(angle) * wide);
+      ctx.lineTo(x2 - Math.cos(angle) * head - Math.sin(angle) * wide, y2 - Math.sin(angle) * head + Math.cos(angle) * wide);
+      ctx.closePath(); ctx.fill();
+      return;
+    }
+    const path = arrowShape(mark, mark.look === 'curved');
+    ctx.save();
+    shadow(ctx, scale);
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = LINE * 1.3; ctx.lineJoin = 'round';
+    ctx.stroke(path);
+    ctx.restore();
+    ctx.fillStyle = mark.colour; ctx.fill(path);
   }
 
   function draw() {
@@ -202,11 +397,48 @@
     undo.disabled = !something;
     pic.classList.toggle('drawing', tool !== 'crop');
     for (const one of toolButtons) one.setAttribute('aria-pressed', String(one.dataset.tool === tool));
+    const start = tool === 'box' && ['spotlight', 'highlight'].includes(looks.box) ? looks.box + 'Start' : tool + 'Start';
     hint.textContent = unreadable ? say('editUnreadable') : tool === 'crop' ? say(cropping() ? 'cropAdjust' : 'cropStart')
-      : say(something ? 'editReady' : tool + 'Start');
+      : say(something ? 'editReady' : start);
   }
 
-  const choose = which => { tool = which; drag = null; draft = null; draw(); };
+  // The strip beside the tools: the chosen tool's looks, then, for a look that
+  // has one, its colours. Built only when the tool or a choice changes.
+  const strip = document.getElementById('looks');
+  function showLooks() {
+    strip.replaceChildren();
+    strip.hidden = !LOOKS[tool];
+    if (!LOOKS[tool]) return;
+    const look = looks[tool];
+    for (const one of LOOKS[tool]) {
+      const button = document.createElement('button');
+      button.type = 'button'; button.className = 'look'; button.dataset.look = one;
+      button.title = say(LOOK_WORDS[one]); button.setAttribute('aria-label', button.title);
+      button.setAttribute('aria-pressed', String(one === look));
+      button.innerHTML = `<svg viewBox="0 0 14 14">${ICONS[one]}</svg>`;
+      strip.append(button);
+    }
+    if (!PAINT[look]) return;
+    const gap = document.createElement('span'); gap.className = 'gap'; strip.append(gap);
+    for (const name of choices(PAINT[look])) {
+      const dot = document.createElement('button');
+      dot.type = 'button'; dot.className = 'dot'; dot.dataset.colour = name; dot.style.setProperty('--c', COLOURS[name]);
+      dot.title = say('colour' + name[0].toUpperCase() + name.slice(1)); dot.setAttribute('aria-label', dot.title);
+      dot.setAttribute('aria-pressed', String(looks.colour[PAINT[look]] === name));
+      strip.append(dot);
+    }
+  }
+  strip.addEventListener('click', event => {
+    const button = event.target.closest('button');
+    if (!button || !LOOKS[tool]) return;
+    const which = button.dataset.look ? `[data-look="${button.dataset.look}"]` : `[data-colour="${button.dataset.colour}"]`;
+    if (button.dataset.look) looks[tool] = button.dataset.look;
+    else if (button.dataset.colour) looks.colour[PAINT[looks[tool]]] = button.dataset.colour;
+    window.pet?.editLooks?.(looks);
+    showLooks(); draw();
+    strip.querySelector(which)?.focus();   // the strip was rebuilt under the keyboard
+  });
+  const choose = which => { tool = which; drag = null; draft = null; showLooks(); draw(); };
   for (const one of toolButtons) one.addEventListener('click', () => choose(one.dataset.tool));
 
   pic.addEventListener('pointerdown', event => {
@@ -220,7 +452,8 @@
     } else {
       const k = natural.w / box().width;
       drag = { kind: 'mark' };
-      draft = { kind: tool, x1: x * k, y1: y * k, x2: x * k, y2: y * k };
+      const look = looks[tool];
+      draft = { kind: tool, look, colour: COLOURS[looks.colour[PAINT[look]]] ?? COLOURS.red, x1: x * k, y1: y * k, x2: x * k, y2: y * k };
     }
     pic.setPointerCapture(event.pointerId);
   });
@@ -299,11 +532,12 @@
 
   // Which picture: the shell says, and serves the picture itself. Its size is
   // taken from the pixels, which is what the saved file is cut from.
-  window.pet?.onEdit?.(async (which, src, w, h) => {
+  window.pet?.onEdit?.(async (which, src, w, h, saved) => {
     key = which; natural = { w, h }; sel = null; marks = []; draft = null; drag = null;
     tool = 'crop'; saving = false; picture = null; unreadable = false;
+    adopt(saved);
     img.src = src;
-    draw();
+    showLooks(); draw();
     try {
       const bitmap = await createImageBitmap(await (await fetch(src)).blob());
       if (key !== which) return;
