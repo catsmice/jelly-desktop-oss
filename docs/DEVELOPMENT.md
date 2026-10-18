@@ -754,6 +754,7 @@ one screen, awake, all of her processes together:
 | --- | ---: | ---: | ---: |
 | As it was, 4M-pixel budget, hidden worlds compiled | 1,340–1,410 MB | 900–930 MB | 310–330 MB |
 | 2M-pixel budget, hidden worlds left out of the scene | 1,020–1,060 MB | 580–610 MB | 290–320 MB |
+| No MSAA, 1024 surface shadows (2026-10-18) | 640–760 MB | 315–370 MB | 280–365 MB |
 
 Most of it is the GPU process: every render target in the pipeline is the size of
 the drawing buffer, so the pixel budget in `renderer.ts` is the biggest lever (4M
@@ -764,6 +765,17 @@ uploaded: 59 meshes and 215k vertices, three times her own. The shell is not the
 cost. Measured side by side on 2026-10-17 (one screen, six minutes each), the same
 page in WKWebView, the engine Tauri would use, took 887 MB against Electron's 824 MB,
 about the same CPU and GPU, and 5.9 s to start against 3.4 s.
+
+The last row came from logging every GPU texture the page creates (a hook on
+`GPUDevice.createTexture`, 426 MB in all). three.js's own `renderer.info` reported
+194 MB, because it does not count multisampling. Four-sample MSAA was about 245 MB of
+it, since every screen-sized target is kept four times over; the surface shadows were
+96 MB, three 2048 maps with a depth buffer each. Without MSAA and at 1024 the textures
+come to 133 MB. Measured with `bench/sampler.py`, four minutes each, the GPU process
+went from about 510 MB to about 318 MB in every sample, and the machine's GPU use from
+53% to 39%. Side by side on a desktop, her edges and the shadows looked no different.
+The toys were not the cost: the trampoline's mesh is 1.7 MB, and the other furniture
+is not in the scene at all.
 
 ## Making a release
 
@@ -833,6 +845,8 @@ npm start`. `__petPixelBudget` set in the page before it starts overrides the bu
   the flavour's absorption so it arrives through her looking like itself.
 - `face-skin.ts`: the sampler takes a window, so the belly can be indexed as well as
   the face. It was hard-coded to the patch the eyes and mouth live in.
+- `renderer.ts` again: `antialias:false`. And `surface-shadows.ts`: `SURFACE_SHADOW_SIZE`
+  1024 instead of 2048. Together about 290 MB of GPU textures; see "What it costs".
 - `composite.ts` again: two shadow ellipses now, one for the body and one for the toy.
   Each is composited into the window's alpha. It
   contributes alpha only. A tinted shadow would have to survive the AgX and sRGB

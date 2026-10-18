@@ -134,7 +134,7 @@ index 3737511..8dcea1c 100644
    const origin=lo.map(x=>Math.floor(x/h)*h-h*.25);
    const dims=hi.map((x,a)=>Math.ceil((x-origin[a])/h)+1);
 diff --git a/src/app/input.ts b/src/app/input.ts
-index 642bc23..73e04de 100644
+index 642bc23..85e5ac4 100644
 --- a/src/app/input.ts
 +++ b/src/app/input.ts
 @@ -29,6 +29,8 @@ export class Input {
@@ -168,7 +168,7 @@ index 642bc23..73e04de 100644
      this.follow.lerp(target,1-Math.exp(-4.5*dt));
      this.temp.copy(this.follow).sub(this.controls.target);
 diff --git a/src/app/runtime.ts b/src/app/runtime.ts
-index f683cca..c679c09 100644
+index f683cca..49eef69 100644
 --- a/src/app/runtime.ts
 +++ b/src/app/runtime.ts
 @@ -17,14 +17,16 @@ import { FixedStepper } from './fixed-step.ts';
@@ -360,6 +360,22 @@ index f683cca..c679c09 100644
    };
    window.addEventListener('pagehide',event=>{if(!event.persisted)dispose();});
    if(import.meta.hot)import.meta.hot.dispose(dispose);
+diff --git a/src/facilities/surface-shadows.ts b/src/facilities/surface-shadows.ts
+index e0c5021..c99a3bb 100644
+--- a/src/facilities/surface-shadows.ts
++++ b/src/facilities/surface-shadows.ts
+@@ -1,7 +1,10 @@
+ import * as THREE from 'three/webgpu';
+ import { Fn, float, normalWorldGeometry, positionWorld, texture, uniform, vec2, vec4 } from 'three/tsl';
+ 
+-export const SURFACE_SHADOW_SIZE=2048;
++// Jelly desktop: 1024. Three of these maps are kept, with a depth buffer each,
++// which is 96 MB at 2048; the toy and the babies are small enough on a desktop
++// that the softer shadow does not show.
++export const SURFACE_SHADOW_SIZE=1024;
+ export const SURFACE_SHADOW_BIAS=.0002; // metres, independent of the fitted depth range
+ const GROUND_SHADOW_SIZE=512;
+ type ReceiverDepth={source:THREE.Mesh;proxy:THREE.Mesh;scene:THREE.Scene;target:THREE.RenderTarget;dirty:boolean};
 diff --git a/src/graphics/character/face-skin.ts b/src/graphics/character/face-skin.ts
 index a8ee5d2..2b31335 100644
 --- a/src/graphics/character/face-skin.ts
@@ -403,7 +419,7 @@ index a8ee5d2..2b31335 100644
          for(let y=Math.floor(minY/this.cell);y<=Math.floor(maxY/this.cell);y++) {
            const key=`${x},${y}`,bin=this.bins.get(key);
 diff --git a/src/graphics/character/jelly-flavors.ts b/src/graphics/character/jelly-flavors.ts
-index d49e3a8..65b5550 100644
+index d49e3a8..2146ffd 100644
 --- a/src/graphics/character/jelly-flavors.ts
 +++ b/src/graphics/character/jelly-flavors.ts
 @@ -8,6 +8,9 @@ export const JELLY_FLAVORS={
@@ -417,7 +433,7 @@ index d49e3a8..65b5550 100644
  
  export type JellyFlavorName=keyof typeof JELLY_FLAVORS;
 diff --git a/src/graphics/scene/composite.ts b/src/graphics/scene/composite.ts
-index 0f609e7..ee749b8 100644
+index 0f609e7..de263aa 100644
 --- a/src/graphics/scene/composite.ts
 +++ b/src/graphics/scene/composite.ts
 @@ -1,15 +1,44 @@
@@ -470,19 +486,22 @@ index 0f609e7..ee749b8 100644
 +  };
  }
 diff --git a/src/graphics/scene/renderer.ts b/src/graphics/scene/renderer.ts
-index 26c3b2d..ae131a0 100644
+index 26c3b2d..9ceeb0e 100644
 --- a/src/graphics/scene/renderer.ts
 +++ b/src/graphics/scene/renderer.ts
-@@ -4,7 +4,7 @@ import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+@@ -4,7 +4,10 @@ import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
  export async function createRenderer(fail:(e:unknown)=>void) {
    if(!window.isSecureContext)throw new Error('Please open this game over HTTPS or localhost.');
    if(!navigator.gpu)throw new Error('This browser does not support WebGPU. Open in a WebGPU-capable browser.');
 -  const renderer=new THREE.WebGPURenderer({antialias:true,alpha:false,powerPreference:'high-performance'});
-+  const renderer=new THREE.WebGPURenderer({antialias:true,alpha:true,powerPreference:'high-performance'});
++  // Jelly desktop: no MSAA. Four samples are kept for every target the pipeline
++  // draws into, about 220 MB of GPU memory at a 2M-pixel budget, and side by side
++  // on a desktop her edges looked no different without them.
++  const renderer=new THREE.WebGPURenderer({antialias:false,alpha:true,powerPreference:'high-performance'});
    // r185 normally installs a WebGL fallback factory. Reject before it is invoked.
    (renderer as unknown as {_getFallback:null})._getFallback=null;
    let fatal:Error|null=null;
-@@ -38,8 +38,16 @@ export async function createRenderer(fail:(e:unknown)=>void) {
+@@ -38,8 +41,16 @@ export async function createRenderer(fail:(e:unknown)=>void) {
  
  export function resizeView(renderer:THREE.WebGPURenderer,camera:THREE.PerspectiveCamera,controls:OrbitControls) {
    if(window.innerWidth<=0||window.innerHeight<=0)return;
@@ -502,7 +521,7 @@ index 26c3b2d..ae131a0 100644
    camera.aspect=width/height;
    camera.fov=2*Math.atan(Math.tan(18*Math.PI/180)*Math.max(1,.85/camera.aspect))*180/Math.PI;
 diff --git a/src/worlds/main/facilities/trampoline/facility.ts b/src/worlds/main/facilities/trampoline/facility.ts
-index 43f790f..e9003f5 100644
+index 43f790f..7e0feec 100644
 --- a/src/worlds/main/facilities/trampoline/facility.ts
 +++ b/src/worlds/main/facilities/trampoline/facility.ts
 @@ -13,17 +13,24 @@ export class TrampolineFacility implements Facility {
